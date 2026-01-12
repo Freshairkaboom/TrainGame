@@ -368,7 +368,7 @@
         // Track Definition: 1=straight, 2=right_curve, 3=left_curve
         // Edit this configuration to create your track layout
         const TRACK_CONFIG = {
-            pattern: "1, 3, 1, 2, 1",
+            pattern: "1, 2, 1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1",
             straightLength: 50,
             curveRadius: 30,
             curveAngle: Math.PI / 2  // 90 degrees
@@ -411,6 +411,33 @@
         }
 
         const trackPieces = buildTrackFromConfig(TRACK_CONFIG);
+
+        // Detect if track forms a loop
+        let isLoopTrack = false;
+        let totalTrackLength = 0;
+
+        if (trackPieces.length > 0) {
+            const firstPiece = trackPieces[0];
+            const lastPiece = trackPieces[trackPieces.length - 1];
+
+            // Calculate total track length
+            trackPieces.forEach(piece => {
+                totalTrackLength += piece.length;
+            });
+
+            // Check if end position connects with start position
+            const positionMatch = lastPiece.endPos.distanceTo(firstPiece.startPos) < 0.1;
+
+            // Check if end direction matches start direction (within tolerance)
+            const directionMatch = lastPiece.endDir.dot(firstPiece.startDir) > 0.99;
+
+            if (positionMatch && directionMatch) {
+                isLoopTrack = true;
+                console.log('Loop track detected! Train will loop infinitely.');
+            }
+        }
+
+        trackPieces.forEach(piece => renderTrackPiece(piece));
 
         function renderTrackPiece(piece) {
             const numSegments = 30;
@@ -462,10 +489,14 @@
             scene.add(finalCrosstie);
         }
 
-        trackPieces.forEach(piece => renderTrackPiece(piece));
-
         function getTrackTransform(distance) {
             let remainingDistance = distance;
+
+            // If track is a loop, wrap the distance
+            if (isLoopTrack && totalTrackLength > 0) {
+                // Normalize distance to be within [0, totalTrackLength]
+                remainingDistance = ((remainingDistance % totalTrackLength) + totalTrackLength) % totalTrackLength;
+            }
 
             for (const piece of trackPieces) {
                 if (remainingDistance <= piece.length) {
@@ -476,6 +507,7 @@
                 remainingDistance -= piece.length;
             }
 
+            // If not a loop, continue straight past the end
             const lastPiece = trackPieces[trackPieces.length - 1];
             const lastTransform = lastPiece.getTransformAt(lastPiece.length);
             const position = lastTransform.position.clone().add(
