@@ -168,14 +168,14 @@
         const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x2c3e50 });
 
         // Front wall (with window opening)
-        const frontWallBottom = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 0.2), wallMaterial);
+        const frontWallBottom = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.2), wallMaterial);
         frontWallBottom.position.set(0, 0.55, -2.4);
         frontWallBottom.castShadow = true;
         frontWallBottom.receiveShadow = true;
         trainGroup.add(frontWallBottom);
         trainColliders.push(frontWallBottom);
 
-        const frontWallTop = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 0.2), wallMaterial);
+        const frontWallTop = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.2), wallMaterial);
         frontWallTop.position.set(0, 2.05, -2.4);
         frontWallTop.castShadow = true;
         frontWallTop.receiveShadow = true;
@@ -216,14 +216,14 @@
         const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0xf39c12 });
 
         // Back wall (with door opening)
-        const backWallLeft = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.0, 0.2), wallMaterial);
-        backWallLeft.position.set(-1.0, 1.3, 2.4);
+        const backWallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.0, 0.2), wallMaterial);
+        backWallLeft.position.set(-0.85, 1.3, 2.4);
         backWallLeft.castShadow = true;
         trainGroup.add(backWallLeft);
         trainColliders.push(backWallLeft);
 
-        const backWallRight = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.0, 0.2), wallMaterial);
-        backWallRight.position.set(1.0, 1.3, 2.4);
+        const backWallRight = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.0, 0.2), wallMaterial);
+        backWallRight.position.set(0.85, 1.3, 2.4);
         backWallRight.castShadow = true;
         trainGroup.add(backWallRight);
         trainColliders.push(backWallRight);
@@ -251,7 +251,7 @@
         const balconyFloorGeometry = new THREE.BoxGeometry(2.0, 0.1, 1.5);
         const balconyFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x7f8c8d });
         const balconyFloor = new THREE.Mesh(balconyFloorGeometry, balconyFloorMaterial);
-        balconyFloor.position.set(0, 0.3, 3.15);
+        balconyFloor.position.set(0, 0.3, 3.25);
         balconyFloor.castShadow = true;
         balconyFloor.receiveShadow = true;
         trainGroup.add(balconyFloor);
@@ -262,114 +262,114 @@
 
         // Left railing
         const leftRailing = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 1.5), railingMaterial);
-        leftRailing.position.set(-1.0, 0.7, 3.35);
+        leftRailing.position.set(-1.0, 0.7, 3.25);
         leftRailing.castShadow = true;
         trainGroup.add(leftRailing);
         trainColliders.push(leftRailing);
 
         // Right railing
         const rightRailing = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 1.5), railingMaterial);
-        rightRailing.position.set(1.0, 0.7, 3.35);
+        rightRailing.position.set(1.0, 0.7, 3.25);
         rightRailing.castShadow = true;
         trainGroup.add(rightRailing);
         trainColliders.push(rightRailing);
 
         // Back railing
         const backRailing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 0.1), railingMaterial);
-        backRailing.position.set(0, 0.7, 4.1);
+        backRailing.position.set(0, 0.7, 4.0);
         backRailing.castShadow = true;
         trainGroup.add(backRailing);
         trainColliders.push(backRailing);
 
         // Railing top bar
         const railingTop = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.1, 0.1), railingMaterial);
-        railingTop.position.set(0, 1.0, 4.1);
+        railingTop.position.set(0, 1.0, 4.0);
         trainGroup.add(railingTop);
 
         const railingTopLeft = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.5), railingMaterial);
-        railingTopLeft.position.set(-1.0, 1.0, 3.35);
+        railingTopLeft.position.set(-1.0, 1.0, 3.25);
         trainGroup.add(railingTopLeft);
 
         const railingTopRight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.5), railingMaterial);
-        railingTopRight.position.set(1.0, 1.0, 3.35);
+        railingTopRight.position.set(1.0, 1.0, 3.25);
         trainGroup.add(railingTopRight);
 
         // Left wall (with door opening)
         const leftWallFront = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.0, 2), wallMaterial);
-        leftWallFront.position.set(-1.5, 1.3, -1.4);
+        leftWallFront.position.set(-1.2, 1.3, -1.4);
         leftWallFront.castShadow = true;
         trainGroup.add(leftWallFront);
         trainColliders.push(leftWallFront);
 
         const leftWallBack = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.0, 2), wallMaterial);
-        leftWallBack.position.set(-1.5, 1.3, 1.4);
+        leftWallBack.position.set(-1.2, 1.3, 1.4);
         leftWallBack.castShadow = true;
         trainGroup.add(leftWallBack);
         trainColliders.push(leftWallBack);
 
         // Left door frame (orange)
         const leftDoorFrameTop = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.8), doorFrameMaterial);
-        leftDoorFrameTop.position.set(-1.625, 2.3, 0);
+        leftDoorFrameTop.position.set(-1.325, 2.3, 0);
         trainGroup.add(leftDoorFrameTop);
 
         const leftDoorFrameBottom = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.8), doorFrameMaterial);
-        leftDoorFrameBottom.position.set(-1.625, 0.35, 0);
+        leftDoorFrameBottom.position.set(-1.325, 0.35, 0);
         trainGroup.add(leftDoorFrameBottom);
 
         const leftDoorFrameLeft = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.85, 0.1), doorFrameMaterial);
-        leftDoorFrameLeft.position.set(-1.625, 1.375, -0.4);
+        leftDoorFrameLeft.position.set(-1.325, 1.375, -0.4);
         trainGroup.add(leftDoorFrameLeft);
 
         const leftDoorFrameRight = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.85, 0.1), doorFrameMaterial);
-        leftDoorFrameRight.position.set(-1.625, 1.375, 0.4);
+        leftDoorFrameRight.position.set(-1.325, 1.375, 0.4);
         trainGroup.add(leftDoorFrameRight);
 
         // Right wall (with window opening)
         const rightWallBottom = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 4.8), wallMaterial);
-        rightWallBottom.position.set(1.5, 0.6, 0);
+        rightWallBottom.position.set(1.2, 0.6, 0);
         rightWallBottom.castShadow = true;
         rightWallBottom.receiveShadow = true;
         trainGroup.add(rightWallBottom);
         trainColliders.push(rightWallBottom);
 
         const rightWallTop = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 4.8), wallMaterial);
-        rightWallTop.position.set(1.5, 1.9, 0);
+        rightWallTop.position.set(1.2, 1.9, 0);
         rightWallTop.castShadow = true;
         rightWallTop.receiveShadow = true;
         trainGroup.add(rightWallTop);
         trainColliders.push(rightWallTop);
 
         const rightWallFront = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.48), wallMaterial);
-        rightWallFront.position.set(1.5, 1.2, -2.16);
+        rightWallFront.position.set(1.2, 1.2, -2.16);
         rightWallFront.castShadow = true;
         trainGroup.add(rightWallFront);
         trainColliders.push(rightWallFront);
 
         const rightWallBack = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.48), wallMaterial);
-        rightWallBack.position.set(1.5, 1.2, 2.16);
+        rightWallBack.position.set(1.2, 1.2, 2.16);
         rightWallBack.castShadow = true;
         trainGroup.add(rightWallBack);
         trainColliders.push(rightWallBack);
 
         // Right window frame
         const rightWindowFrameTop = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 3.84), windowFrameMaterial);
-        rightWindowFrameTop.position.set(1.525, 1.45, 0);
+        rightWindowFrameTop.position.set(1.225, 1.45, 0);
         trainGroup.add(rightWindowFrameTop);
 
         const rightWindowFrameBottom = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 3.84), windowFrameMaterial);
-        rightWindowFrameBottom.position.set(1.525, 0.95, 0);
+        rightWindowFrameBottom.position.set(1.225, 0.95, 0);
         trainGroup.add(rightWindowFrameBottom);
 
         const rightWindowFrameFront = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.1), windowFrameMaterial);
-        rightWindowFrameFront.position.set(1.525, 1.2, -1.92);
+        rightWindowFrameFront.position.set(1.225, 1.2, -1.92);
         trainGroup.add(rightWindowFrameFront);
 
         const rightWindowFrameBack = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.1), windowFrameMaterial);
-        rightWindowFrameBack.position.set(1.525, 1.2, 1.92);
+        rightWindowFrameBack.position.set(1.225, 1.2, 1.92);
         trainGroup.add(rightWindowFrameBack);
 
         // Cabin roof
-        const roofGeometry = new THREE.BoxGeometry(3.2, 0.3, 5);
+        const roofGeometry = new THREE.BoxGeometry(2.6, 0.3, 5);
         const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x34495e });
         const roof = new THREE.Mesh(roofGeometry, roofMaterial);
         roof.position.set(0, 2.45, 0);
@@ -378,7 +378,7 @@
         trainColliders.push(roof);
 
         // Train floor
-        const floorGeometry = new THREE.BoxGeometry(3, 0.2, 5);
+        const floorGeometry = new THREE.BoxGeometry(2.4, 0.2, 5);
         const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x7f8c8d });
         const trainFloor = new THREE.Mesh(floorGeometry, floorMaterial);
         trainFloor.position.y = 0.3;
