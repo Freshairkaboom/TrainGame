@@ -150,13 +150,8 @@
         directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
 
-        // ===== GROUND =====
-        const groundGeometry = new THREE.PlaneGeometry(300, 300);
-        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4a6741 });
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2;
-        ground.receiveShadow = true;
-        scene.add(ground);
+        // ===== GROUND ===== (will be created after tracks are built)
+        let ground = null;
 
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
@@ -661,6 +656,305 @@
             if (route) {
                 route.forEach(piece => renderTrackPiece(piece));
             }
+        }
+
+        // ===== CREATE DYNAMIC GROUND BASED ON TRACK BOUNDS =====
+        function calculateTrackBounds() {
+            const bounds = {
+                minX: Infinity,
+                maxX: -Infinity,
+                minZ: Infinity,
+                maxZ: -Infinity
+            };
+
+            // Sample points along all track pieces to find bounds
+            for (const [routeName, route] of Object.entries(trackRoutes)) {
+                if (route) {
+                    route.forEach(piece => {
+                        // Sample multiple points along each piece
+                        const samples = 20;
+                        for (let i = 0; i <= samples; i++) {
+                            const t = (i / samples) * piece.length;
+                            const transform = piece.getTransformAt(t);
+                            bounds.minX = Math.min(bounds.minX, transform.position.x);
+                            bounds.maxX = Math.max(bounds.maxX, transform.position.x);
+                            bounds.minZ = Math.min(bounds.minZ, transform.position.z);
+                            bounds.maxZ = Math.max(bounds.maxZ, transform.position.z);
+                        }
+                    });
+                }
+            }
+
+            return bounds;
+        }
+
+        const trackBounds = calculateTrackBounds();
+        const grassMargin = 20; // 20 units grass margin in every direction
+        const waterMargin = 50; // 50 units total (20 grass + 30 water)
+
+        const groundWidth = (trackBounds.maxX - trackBounds.minX) + (grassMargin * 2);
+        const groundDepth = (trackBounds.maxZ - trackBounds.minZ) + (grassMargin * 2);
+        const groundCenterX = (trackBounds.minX + trackBounds.maxX) / 2;
+        const groundCenterZ = (trackBounds.minZ + trackBounds.maxZ) / 2;
+
+        // Create grass ground
+        const groundGeometry = new THREE.PlaneGeometry(groundWidth, groundDepth);
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4a6741 });
+        ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(groundCenterX, 0, groundCenterZ);
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Create water plane around grass
+        const waterWidth = (trackBounds.maxX - trackBounds.minX) + (waterMargin * 2);
+        const waterDepth = (trackBounds.maxZ - trackBounds.minZ) + (waterMargin * 2);
+        const waterGeometry = new THREE.PlaneGeometry(waterWidth, waterDepth);
+        const waterMaterial = new THREE.MeshStandardMaterial({
+            color: 0x1e90ff,
+            transparent: true,
+            opacity: 0.7,
+            metalness: 0.5,
+            roughness: 0.3
+        });
+        const water = new THREE.Mesh(waterGeometry, waterMaterial);
+        water.rotation.x = -Math.PI / 2;
+        water.position.set(groundCenterX, -0.1, groundCenterZ); // Slightly below grass
+        water.receiveShadow = true;
+        scene.add(water);
+
+        // Create invisible collision walls at water boundaries (at the edge)
+        const wallInset = 0;
+        const wallHeight = 10;
+        const wallThickness = 1;
+        const waterColliders = [];
+
+        const invisibleMaterial = new THREE.MeshBasicMaterial({ visible: false });
+
+        // North wall (at grass edge)
+        const northWall = new THREE.Mesh(
+            new THREE.BoxGeometry(groundWidth, wallHeight, wallThickness),
+            invisibleMaterial
+        );
+        northWall.position.set(
+            groundCenterX,
+            wallHeight / 2,
+            groundCenterZ - groundDepth / 2
+        );
+        scene.add(northWall);
+        waterColliders.push(northWall);
+
+        // South wall (at grass edge)
+        const southWall = new THREE.Mesh(
+            new THREE.BoxGeometry(groundWidth, wallHeight, wallThickness),
+            invisibleMaterial
+        );
+        southWall.position.set(
+            groundCenterX,
+            wallHeight / 2,
+            groundCenterZ + groundDepth / 2
+        );
+        scene.add(southWall);
+        waterColliders.push(southWall);
+
+        // West wall (at grass edge)
+        const westWall = new THREE.Mesh(
+            new THREE.BoxGeometry(wallThickness, wallHeight, groundDepth),
+            invisibleMaterial
+        );
+        westWall.position.set(
+            groundCenterX - groundWidth / 2,
+            wallHeight / 2,
+            groundCenterZ
+        );
+        scene.add(westWall);
+        waterColliders.push(westWall);
+
+        // East wall (at grass edge)
+        const eastWall = new THREE.Mesh(
+            new THREE.BoxGeometry(wallThickness, wallHeight, groundDepth),
+            invisibleMaterial
+        );
+        eastWall.position.set(
+            groundCenterX + groundWidth / 2,
+            wallHeight / 2,
+            groundCenterZ
+        );
+        scene.add(eastWall);
+        waterColliders.push(eastWall);
+
+        // ===== ENVIRONMENT OBJECTS (TREES, ROCKS, BUSHES) =====
+        const environmentColliders = [];
+
+        // Check if a position is too close to any track
+        function isPositionNearTrack(x, z, minDistance) {
+            for (const [routeName, route] of Object.entries(trackRoutes)) {
+                if (route) {
+                    for (const piece of route) {
+                        // Sample points along track piece
+                        const samples = 10;
+                        for (let i = 0; i <= samples; i++) {
+                            const t = (i / samples) * piece.length;
+                            const transform = piece.getTransformAt(t);
+                            const dx = x - transform.position.x;
+                            const dz = z - transform.position.z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            if (distance < minDistance) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Create a tree
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+
+            // Trunk
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 3, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3520 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 1.5;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // Foliage (3 spheres)
+            const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x2d5016 });
+            const foliage1 = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8), foliageMaterial);
+            foliage1.position.y = 3.5;
+            foliage1.castShadow = true;
+            treeGroup.add(foliage1);
+
+            const foliage2 = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 8), foliageMaterial);
+            foliage2.position.set(0.8, 4, 0.5);
+            foliage2.castShadow = true;
+            treeGroup.add(foliage2);
+
+            const foliage3 = new THREE.Mesh(new THREE.SphereGeometry(1.0, 8, 8), foliageMaterial);
+            foliage3.position.set(-0.6, 4.2, -0.3);
+            foliage3.castShadow = true;
+            treeGroup.add(foliage3);
+
+            treeGroup.position.set(x, 0, z);
+            scene.add(treeGroup);
+
+            // Add collision cylinder
+            const collider = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.5, 3, 8),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            collider.position.set(x, 1.5, z);
+            scene.add(collider);
+            environmentColliders.push(collider);
+        }
+
+        // Create a rock
+        function createRock(x, z) {
+            const size = 0.5 + Math.random() * 0.8;
+            const rockGeometry = new THREE.DodecahedronGeometry(size, 0);
+            const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+            const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+            rock.position.set(x, size * 0.6, z);
+            rock.rotation.set(
+                Math.random() * Math.PI,
+                Math.random() * Math.PI,
+                Math.random() * Math.PI
+            );
+            rock.castShadow = true;
+            rock.receiveShadow = true;
+            scene.add(rock);
+            environmentColliders.push(rock);
+        }
+
+        // Create a bush
+        function createBush(x, z) {
+            const bushGroup = new THREE.Group();
+            const bushMaterial = new THREE.MeshStandardMaterial({ color: 0x3a6b35 });
+
+            // Main bush sphere
+            const bush1 = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), bushMaterial);
+            bush1.position.y = 0.6;
+            bush1.scale.set(1, 0.8, 1);
+            bush1.castShadow = true;
+            bushGroup.add(bush1);
+
+            // Additional smaller spheres for shape
+            const bush2 = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), bushMaterial);
+            bush2.position.set(0.4, 0.5, 0.3);
+            bush2.scale.set(1, 0.8, 1);
+            bush2.castShadow = true;
+            bushGroup.add(bush2);
+
+            const bush3 = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), bushMaterial);
+            bush3.position.set(-0.3, 0.4, -0.2);
+            bush3.scale.set(1, 0.8, 1);
+            bush3.castShadow = true;
+            bushGroup.add(bush3);
+
+            bushGroup.position.set(x, 0, z);
+            scene.add(bushGroup);
+
+            // Add collision sphere
+            const collider = new THREE.Mesh(
+                new THREE.SphereGeometry(1.0, 8, 8),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            collider.position.set(x, 0.6, z);
+            scene.add(collider);
+            environmentColliders.push(collider);
+        }
+
+        // Spawn environment objects randomly
+        const numTrees = 30;
+        const numRocks = 20;
+        const numBushes = 40;
+        const trackClearance = 8; // Minimum distance from tracks
+        const objectSpacing = 3; // Minimum distance between objects
+        const placedPositions = [];
+
+        function isPositionClear(x, z) {
+            // Check against already placed objects
+            for (const pos of placedPositions) {
+                const dx = x - pos.x;
+                const dz = z - pos.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                if (distance < objectSpacing) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function tryPlaceObject(createFunc, maxAttempts = 50) {
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const x = groundCenterX - groundWidth / 2 + Math.random() * groundWidth;
+                const z = groundCenterZ - groundDepth / 2 + Math.random() * groundDepth;
+
+                if (!isPositionNearTrack(x, z, trackClearance) && isPositionClear(x, z)) {
+                    createFunc(x, z);
+                    placedPositions.push({ x, z });
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Place trees
+        for (let i = 0; i < numTrees; i++) {
+            tryPlaceObject(createTree);
+        }
+
+        // Place rocks
+        for (let i = 0; i < numRocks; i++) {
+            tryPlaceObject(createRock);
+        }
+
+        // Place bushes
+        for (let i = 0; i < numBushes; i++) {
+            tryPlaceObject(createBush);
         }
 
         function renderTrackPiece(piece) {
@@ -1508,7 +1802,9 @@
             }
 
             // Ground collision
-            const playerWorldY = player.getWorldPosition(new THREE.Vector3()).y;
+            const playerWorldPos2 = player.getWorldPosition(new THREE.Vector3());
+            const playerWorldY = playerWorldPos2.y;
+
             if (playerWorldY - playerHeight/2 <= 0) {
                 if (gameState.isOnTrain) {
                     // If on train, set in local space
@@ -1519,6 +1815,70 @@
                 }
                 gameState.playerVelocity.y = 0;
                 gameState.canJump = true;
+            }
+
+            // Grass boundary collision (prevent player from entering water)
+            if (!gameState.isOnTrain) {
+                for (const wall of waterColliders) {
+                    const wallPos = wall.position.clone();
+                    const wallGeometry = wall.geometry;
+                    const halfSize = new THREE.Vector3(
+                        wallGeometry.parameters.width / 2,
+                        wallGeometry.parameters.height / 2,
+                        wallGeometry.parameters.depth / 2
+                    );
+
+                    const diff = new THREE.Vector3().subVectors(playerWorldPos2, wallPos);
+                    const overlapX = halfSize.x + playerRadius - Math.abs(diff.x);
+                    const overlapY = halfSize.y + playerHeight / 2 - Math.abs(diff.y);
+                    const overlapZ = halfSize.z + playerRadius - Math.abs(diff.z);
+
+                    if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                        if (overlapX < overlapZ) {
+                            player.position.x += overlapX * Math.sign(diff.x);
+                            gameState.playerVelocity.x = 0;
+                        } else {
+                            player.position.z += overlapZ * Math.sign(diff.z);
+                            gameState.playerVelocity.z = 0;
+                        }
+                    }
+                }
+            }
+
+            // Environment collision (trees, rocks, bushes) - only when not on train
+            if (!gameState.isOnTrain) {
+                for (const collider of environmentColliders) {
+                    const colliderPos = collider.position.clone();
+                    const colliderGeometry = collider.geometry;
+
+                    // Handle both cylinder and sphere colliders
+                    let radius, height;
+                    if (colliderGeometry.parameters.radiusTop !== undefined) {
+                        // Cylinder
+                        radius = colliderGeometry.parameters.radiusTop;
+                        height = colliderGeometry.parameters.height || 3;
+                    } else if (colliderGeometry.parameters.radius !== undefined) {
+                        // Sphere or dodecahedron
+                        radius = colliderGeometry.parameters.radius;
+                        height = radius * 2;
+                    } else {
+                        continue;
+                    }
+
+                    const diff = new THREE.Vector3().subVectors(playerWorldPos2, colliderPos);
+                    const horizontalDistance = Math.sqrt(diff.x * diff.x + diff.z * diff.z);
+                    const verticalOverlap = (height / 2 + playerHeight / 2) - Math.abs(diff.y);
+
+                    if (horizontalDistance < radius + playerRadius && verticalOverlap > 0) {
+                        // Push player away from collider center
+                        const pushAngle = Math.atan2(diff.z, diff.x);
+                        const pushDistance = (radius + playerRadius) - horizontalDistance;
+                        player.position.x += Math.cos(pushAngle) * pushDistance;
+                        player.position.z += Math.sin(pushAngle) * pushDistance;
+                        gameState.playerVelocity.x *= 0.5;
+                        gameState.playerVelocity.z *= 0.5;
+                    }
+                }
             }
 
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
