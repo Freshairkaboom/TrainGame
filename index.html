@@ -111,7 +111,7 @@
                 brake: false
             },
             cartAttached: false,
-            cartTrackDistance: 20  // Start 20 units behind train
+            cartTrackDistance: 0  // Start at beginning of track
         };
 
         // ===== SCENE SETUP =====
@@ -124,7 +124,7 @@
 
         // Create player object and parent camera to it
         const player = new THREE.Object3D();
-        player.position.set(-4, 1.2, 5); // Spawn on platform (left side, at platform height 0.3 + player half-height 0.9)
+        player.position.set(-4, 1.2, 0); // Spawn on platform (left side at -4, height 1.2, Z aligned with station)
         scene.add(player);
         player.add(camera);
         camera.position.set(0, 0, 0);
@@ -1504,6 +1504,97 @@
         const greenLever = createLever(0x2ecc71, new THREE.Vector3(0, 0.95, -1.85), 'reverse');
         const redLever = createLever(0xe74c3c, new THREE.Vector3(0.4, 0.95, -1.85), 'brake');
 
+        // ===== TRAIN HORN ROPE =====
+        const hornRopeGroup = new THREE.Group();
+
+        // Rope attachment point at ceiling
+        const ropeAttachmentGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.05, 8);
+        const ropeAttachmentMaterial = new THREE.MeshStandardMaterial({ color: 0x666666 });
+        const ropeAttachment = new THREE.Mesh(ropeAttachmentGeometry, ropeAttachmentMaterial);
+        ropeAttachment.position.y = 2.4;
+        hornRopeGroup.add(ropeAttachment);
+
+        // Rope itself (multiple segments for realism)
+        const ropeSegmentGeometry = new THREE.CylinderGeometry(0.015, 0.015, 0.2, 6);
+        const ropeMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+
+        for (let i = 0; i < 4; i++) {
+            const segment = new THREE.Mesh(ropeSegmentGeometry, ropeMaterial);
+            segment.position.y = 2.3 - (i * 0.2);
+            hornRopeGroup.add(segment);
+        }
+
+        // Rope handle/pull ring
+        const handleRingGeometry = new THREE.TorusGeometry(0.08, 0.02, 8, 12);
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+        const handleRing = new THREE.Mesh(handleRingGeometry, handleMaterial);
+        handleRing.position.y = 1.5; // Eye level
+        // Ring is vertical by default (no rotation needed)
+        hornRopeGroup.add(handleRing);
+
+        hornRopeGroup.position.set(0.55, 0, -1.85); // Directly to the right of levers
+        hornRopeGroup.userData = { isHornRope: true };
+        trainGroup.add(hornRopeGroup);
+
+        // ===== TRAIN HORN AUDIO =====
+        const hornAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let hornOsc1 = null;
+        let hornOsc2 = null;
+        let hornGainNode = null;
+        let isHornPlaying = false;
+
+        function startTrainHorn() {
+            if (isHornPlaying) return;
+            isHornPlaying = true;
+
+            const now = hornAudioContext.currentTime;
+
+            // Create two oscillators for a realistic train horn sound
+            hornOsc1 = hornAudioContext.createOscillator();
+            hornOsc2 = hornAudioContext.createOscillator();
+            hornGainNode = hornAudioContext.createGain();
+
+            // Lower frequency for train horn (around 200-250 Hz)
+            hornOsc1.frequency.setValueAtTime(220, now);
+            hornOsc2.frequency.setValueAtTime(280, now);
+
+            hornOsc1.type = 'triangle';
+            hornOsc2.type = 'triangle';
+
+            // Connect oscillators to gain node
+            hornOsc1.connect(hornGainNode);
+            hornOsc2.connect(hornGainNode);
+            hornGainNode.connect(hornAudioContext.destination);
+
+            // Quick attack to full volume
+            hornGainNode.gain.setValueAtTime(0, now);
+            hornGainNode.gain.linearRampToValueAtTime(0.3, now + 0.1);
+
+            hornOsc1.start(now);
+            hornOsc2.start(now);
+        }
+
+        function stopTrainHorn() {
+            if (!isHornPlaying) return;
+
+            const now = hornAudioContext.currentTime;
+
+            // Quick release
+            if (hornGainNode) {
+                hornGainNode.gain.linearRampToValueAtTime(0, now + 0.15);
+            }
+
+            // Stop oscillators after release
+            setTimeout(() => {
+                if (hornOsc1) hornOsc1.stop();
+                if (hornOsc2) hornOsc2.stop();
+                hornOsc1 = null;
+                hornOsc2 = null;
+                hornGainNode = null;
+                isHornPlaying = false;
+            }, 150);
+        }
+
         // ===== PLAYER COLLISION BOX =====
         const playerBox = new THREE.Box3();
         const playerHeight = 1.6;
@@ -1554,6 +1645,37 @@
                 gameState.mouseMovement.x += e.movementX * 0.002;
                 gameState.mouseMovement.y += e.movementY * 0.002;
                 gameState.mouseMovement.y = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, gameState.mouseMovement.y));
+            }
+        });
+
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement === renderer.domElement && e.button === 0) {
+                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+                // Check for horn rope interaction
+                const hornIntersects = raycaster.intersectObjects(trainGroup.children, true);
+                if (hornIntersects.length > 0) {
+                    let hornObj = hornIntersects[0].object;
+                    while (hornObj.parent && !hornObj.userData.isHornRope) {
+                        hornObj = hornObj.parent;
+                    }
+
+                    if (hornObj.userData.isHornRope) {
+                        startTrainHorn();
+                        // Animate rope pull
+                        hornObj.position.y -= 0.1;
+                    }
+                }
+            }
+        });
+
+        renderer.domElement.addEventListener('mouseup', (e) => {
+            if (e.button === 0) {
+                stopTrainHorn();
+                // Reset rope position
+                if (hornRopeGroup.position.y < 0) {
+                    hornRopeGroup.position.y = 0;
+                }
             }
         });
 
@@ -2139,13 +2261,30 @@
 
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
+            // Check for horn rope interaction
+            const hornIntersects = raycaster.intersectObjects(trainGroup.children, true);
+            let showHornPrompt = false;
+            if (hornIntersects.length > 0) {
+                let hornObj = hornIntersects[0].object;
+                while (hornObj.parent && !hornObj.userData.isHornRope) {
+                    hornObj = hornObj.parent;
+                }
+                if (hornObj.userData.isHornRope) {
+                    showHornPrompt = true;
+                }
+            }
+
             // Check for lever interactions
             const leverIntersects = raycaster.intersectObjects(levers, true);
 
             // Check for track switch interactions
             const switchIntersects = raycaster.intersectObjects(trackSwitches, true);
 
-            if (leverIntersects.length > 0 || switchIntersects.length > 0) {
+            if (showHornPrompt) {
+                interactionPrompt.textContent = 'Click to toot the horn';
+                interactionPrompt.style.display = 'block';
+            } else if (leverIntersects.length > 0 || switchIntersects.length > 0) {
+                interactionPrompt.textContent = 'Click to Toggle';
                 interactionPrompt.style.display = 'block';
             } else {
                 interactionPrompt.style.display = 'none';
