@@ -102,7 +102,9 @@
                 forward: false,
                 reverse: false,
                 brake: false
-            }
+            },
+            cartAttached: false,
+            cartTrackDistance: 20  // Start 20 units behind train
         };
 
         // ===== SCENE SETUP =====
@@ -410,13 +412,14 @@
                 this.length = 0;
                 this.type = 'straight';
                 this.switchState = 'straight'; // For switcher pieces
+                this.targetRoute = null; // For final pieces
             }
 
             getTransformAt(t) {
                 const position = new THREE.Vector3();
                 const direction = new THREE.Vector3();
 
-                if (this.type === 'straight') {
+                if (this.type === 'straight' || this.type === 'final') {
                     const alpha = t / this.length;
                     position.lerpVectors(this.startPos, this.endPos, alpha);
                     direction.copy(this.startDir);
@@ -481,6 +484,18 @@
             return piece;
         }
 
+        function createFinalPiece(length, startPos, startDir, targetRoute = null) {
+            const piece = new TrackPiece();
+            piece.type = 'final';
+            piece.startPos.copy(startPos);
+            piece.startDir.copy(startDir).normalize();
+            piece.length = length;
+            piece.endPos.copy(startPos).add(piece.startDir.clone().multiplyScalar(length));
+            piece.endDir.copy(piece.startDir);
+            piece.targetRoute = targetRoute;
+            return piece;
+        }
+
         function createSwitcherPiece(straightLength, curveRadius, curveAngle, startPos, startDir, targetRoute = null) {
             const piece = new TrackPiece();
             piece.type = 'switcher';
@@ -504,21 +519,22 @@
         }
 
         // ===== TRACK CONFIGURATION =====
-        // Track Definition: 1=straight, 2=right_curve, 3=left_curve
+        // Track Definition: 1=straight, 2=right_curve, 3=left_curve, 6=final piece
         // Switcher format: {type:4/5, targetRoute:'routeName'}
+        // Final piece format: '6' - stops forward movement with red barrier (allows reverse)
         // Edit this configuration to create your track layout
         const TRACK_ROUTES = {
             main: {
                 pattern: [
                     '1', '1',
                     {type: '4', targetRoute: 'branch'},  // Switcher that leads to branch route
-                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '2', '1', '2', '1', '1', '1'
+                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '1', '2', '1', '6'
                 ],
                 startPos: new THREE.Vector3(0, 0, 0),
                 startDir: new THREE.Vector3(0, 0, -1)
             },
             branch: {
-                pattern: ['1', '1', '1', '2', '2', '1', '1'],
+                pattern: ['1', '1', '1', '2', '2', '1', '1', '6'],
                 // Start position will be set by the switcher
                 startPos: null,
                 startDir: null
@@ -567,6 +583,9 @@
                         break;
                     case '5': // Switcher with left turn option
                         piece = createSwitcherPiece(params.straightLength, params.curveRadius, -params.curveAngle, currentPos, currentDir, targetRoute);
+                        break;
+                    case '6': // Final piece (transition piece)
+                        piece = createFinalPiece(params.straightLength, currentPos, currentDir, targetRoute);
                         break;
                     default:
                         console.warn(`Unknown track segment: ${segmentType}`);
@@ -620,6 +639,16 @@
 
         const trackPieces = trackRoutes['main'];
 
+        // Build a map of all track pieces to their routes for connection detection
+        const pieceToRouteMap = new Map();
+        for (const [routeName, route] of Object.entries(trackRoutes)) {
+            if (route) {
+                route.forEach((piece, index) => {
+                    pieceToRouteMap.set(piece, { routeName, index });
+                });
+            }
+        }
+
         // Render all track routes
         for (const [routeName, route] of Object.entries(trackRoutes)) {
             if (route) {
@@ -636,6 +665,42 @@
                 return;
             }
             renderTrackPath(piece, 30);
+
+            // For final pieces, add a stop barrier at the end
+            if (piece.type === 'final') {
+                createStopBarrier(piece);
+            }
+        }
+
+        function createStopBarrier(piece) {
+            const endTransform = piece.getTransformAt(piece.length);
+            const angle = Math.atan2(endTransform.direction.x, -endTransform.direction.z);
+
+            // Red barrier bumper
+            const barrierGeometry = new THREE.BoxGeometry(3.5, 1.0, 0.3);
+            const barrierMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            const barrier = new THREE.Mesh(barrierGeometry, barrierMaterial);
+            barrier.position.copy(endTransform.position);
+            barrier.position.y = 0.5;
+            barrier.rotation.y = -angle;
+            barrier.castShadow = true;
+            barrier.receiveShadow = true;
+            scene.add(barrier);
+
+            // Yellow/black striped warning stripes
+            const stripeGeometry = new THREE.BoxGeometry(3.5, 0.2, 0.35);
+            const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const stripe1 = new THREE.Mesh(stripeGeometry, stripeMaterial);
+            stripe1.position.copy(endTransform.position);
+            stripe1.position.y = 0.3;
+            stripe1.rotation.y = -angle;
+            scene.add(stripe1);
+
+            const stripe2 = new THREE.Mesh(stripeGeometry, stripeMaterial);
+            stripe2.position.copy(endTransform.position);
+            stripe2.position.y = 0.7;
+            stripe2.rotation.y = -angle;
+            scene.add(stripe2);
         }
 
         function renderTrackPath(piece, numSegments) {
@@ -788,7 +853,13 @@
 
             // Calculate total length for this route
             let routeLength = 0;
-            currentRoute.forEach(piece => routeLength += piece.length);
+            currentRoute.forEach(piece => {
+                let pieceLength = piece.length;
+                if (piece.type === 'switcher' && piece.switchState === 'alternate') {
+                    pieceLength = piece.alternatePath.length;
+                }
+                routeLength += pieceLength;
+            });
 
             for (let i = 0; i < currentRoute.length; i++) {
                 const piece = currentRoute[i];
@@ -802,13 +873,21 @@
                 if (remainingDistance <= effectiveLength) {
                     const transform = piece.getTransformAt(remainingDistance);
                     const rotation = Math.atan2(transform.direction.x, -transform.direction.z);
-                    return { position: transform.position, rotation, routeName };
+                    // Return current piece type and distance within piece for deceleration logic
+                    return {
+                        position: transform.position,
+                        rotation,
+                        routeName,
+                        currentPiece: piece,
+                        distanceInPiece: remainingDistance
+                    };
                 }
 
                 remainingDistance -= effectiveLength;
 
                 // Check if this is a switcher and train should switch routes
-                if (piece.type === 'switcher' && piece.switchState === 'alternate' && piece.targetRoute) {
+                // Only switch if we've naturally progressed past the end of the alternate path
+                if (piece.type === 'switcher' && piece.switchState === 'alternate' && piece.targetRoute && remainingDistance > 0) {
                     // Switch to the target route, continuing with remaining distance
                     const result = getTrackTransform(remainingDistance, piece.targetRoute);
                     result.newDistance = remainingDistance; // Pass the new distance back
@@ -816,17 +895,100 @@
                 }
             }
 
-            // Continue straight past the end
-            const lastPiece = currentRoute[currentRoute.length - 1];
-            const lastTransform = lastPiece.getTransformAt(lastPiece.length);
-            const position = lastTransform.position.clone().add(
-                lastTransform.direction.clone().multiplyScalar(remainingDistance)
-            );
-            const rotation = Math.atan2(lastTransform.direction.x, -lastTransform.direction.z);
-            return { position, rotation, routeName };
+            // If we've exhausted all pieces, stop at the last piece's end
+            if (remainingDistance > 0 && currentRoute.length > 0) {
+                const lastPiece = currentRoute[currentRoute.length - 1];
+                const transform = lastPiece.getTransformAt(lastPiece.length);
+                const rotation = Math.atan2(transform.direction.x, -transform.direction.z);
+                return { position: transform.position, rotation, routeName };
+            }
+
+            // Shouldn't reach here, but return route start as fallback
+            const firstPiece = currentRoute[0];
+            const transform = firstPiece.getTransformAt(0);
+            const rotation = Math.atan2(transform.direction.x, -transform.direction.z);
+            return { position: transform.position, rotation, routeName };
         }
 
         let trainTrackDistance = 0;
+        let cartTrackRoute = 'main';
+
+        // ===== CARGO CART =====
+        const cartGroup = new THREE.Group();
+        scene.add(cartGroup);
+
+        const cartColliders = [];
+        const cartFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+        const cartWallMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
+
+        // Cart floor
+        const cartFloorGeometry = new THREE.BoxGeometry(2.5, 0.2, 4);
+        const cartFloor = new THREE.Mesh(cartFloorGeometry, cartFloorMaterial);
+        cartFloor.position.y = 0.5;
+        cartFloor.castShadow = true;
+        cartFloor.receiveShadow = true;
+        cartGroup.add(cartFloor);
+        cartColliders.push(cartFloor);
+
+        // Cart walls (low sides)
+        const cartWallHeight = 0.6;
+
+        const cartLeftWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, cartWallHeight, 4), cartWallMaterial);
+        cartLeftWall.position.set(-1.175, 0.6 + cartWallHeight/2, 0);
+        cartLeftWall.castShadow = true;
+        cartGroup.add(cartLeftWall);
+        cartColliders.push(cartLeftWall);
+
+        const cartRightWall = new THREE.Mesh(new THREE.BoxGeometry(0.15, cartWallHeight, 4), cartWallMaterial);
+        cartRightWall.position.set(1.175, 0.6 + cartWallHeight/2, 0);
+        cartRightWall.castShadow = true;
+        cartGroup.add(cartRightWall);
+        cartColliders.push(cartRightWall);
+
+        const cartFrontWall = new THREE.Mesh(new THREE.BoxGeometry(2.5, cartWallHeight, 0.15), cartWallMaterial);
+        cartFrontWall.position.set(0, 0.6 + cartWallHeight/2, -2);
+        cartFrontWall.castShadow = true;
+        cartGroup.add(cartFrontWall);
+        cartColliders.push(cartFrontWall);
+
+        const cartBackWall = new THREE.Mesh(new THREE.BoxGeometry(2.5, cartWallHeight, 0.15), cartWallMaterial);
+        cartBackWall.position.set(0, 0.6 + cartWallHeight/2, 2);
+        cartBackWall.castShadow = true;
+        cartGroup.add(cartBackWall);
+        cartColliders.push(cartBackWall);
+
+        // Cart wheels
+        const cartWheelPositions = [
+            { x: -1.0, z: 1.2 },
+            { x: 1.0, z: 1.2 },
+            { x: -1.0, z: -1.2 },
+            { x: 1.0, z: -1.2 }
+        ];
+
+        cartWheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos.x, 0.4, pos.z);
+            wheel.castShadow = true;
+            cartGroup.add(wheel);
+        });
+
+        // Coupling mechanism (visible connection point)
+        const couplerGroup = new THREE.Group();
+        const couplerMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+        const couplerBase = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 8), couplerMaterial);
+        couplerBase.rotation.z = Math.PI / 2;
+        couplerBase.position.set(0, 0.6, -2.3);
+        couplerGroup.add(couplerBase);
+
+        couplerGroup.userData = { isCoupler: true };
+        cartGroup.add(couplerGroup);
+
+        // Position cart initially behind train
+        const initialCartTransform = getTrackTransform(gameState.cartTrackDistance, cartTrackRoute);
+        cartGroup.position.copy(initialCartTransform.position);
+        cartGroup.rotation.y = -initialCartTransform.rotation;
 
         // ===== CONTROL PANEL =====
         const panelBoxGeometry = new THREE.BoxGeometry(1.5, 0.45, 0.6);
@@ -938,6 +1100,23 @@
                         const switcherPiece = switchObj.userData.switcherPiece;
                         toggleTrackSwitch(switcherPiece);
                         updateSwitchVisual(switchObj);
+                        return;
+                    }
+                }
+
+                // Check for coupler interaction (detach cart)
+                if (gameState.cartAttached) {
+                    const couplerIntersects = raycaster.intersectObjects(cartGroup.children, true);
+                    if (couplerIntersects.length > 0) {
+                        let couplerObj = couplerIntersects[0].object;
+                        while (couplerObj.parent && !couplerObj.userData.isCoupler) {
+                            couplerObj = couplerObj.parent;
+                        }
+
+                        if (couplerObj.userData.isCoupler) {
+                            gameState.cartAttached = false;
+                            console.log('Cart detached!');
+                        }
                     }
                 }
             }
@@ -1018,15 +1197,77 @@
 
             trainTrackDistance -= gameState.trainVelocity * delta;
             const trackTransform = getTrackTransform(trainTrackDistance, currentTrackRoute);
+
+            // Apply strong deceleration when on a final piece (approaching barrier)
+            if (trackTransform.currentPiece && trackTransform.currentPiece.type === 'final') {
+                // Calculate distance to the END of the final piece
+                const distanceToEnd = trackTransform.currentPiece.length - trackTransform.distanceInPiece;
+
+                // Only start decelerating when within 15 units of the barrier
+                if (distanceToEnd < 15 && gameState.trainVelocity < 0) {
+                    // Moving forward (negative velocity) - apply barrier deceleration
+                    const barrierDeceleration = 0.4;
+                    gameState.trainVelocity += barrierDeceleration;
+
+                    // If very close to barrier (within 3 units of end), stop completely
+                    if (distanceToEnd < 3) {
+                        gameState.trainVelocity = 0;
+                        gameState.levers.forward = false;
+                        updateLeverVisuals(yellowLever);
+                    }
+                }
+            }
+
             trainGroup.position.copy(trackTransform.position);
             trainGroup.rotation.y = -trackTransform.rotation;
 
-            // Update current route if it changed and reset distance
+            // Update current route if it changed
             if (trackTransform.routeName && trackTransform.routeName !== currentTrackRoute) {
                 currentTrackRoute = trackTransform.routeName;
-                // Reset distance to what was returned (the remaining distance on new route)
-                if (trackTransform.newDistance !== undefined) {
-                    trainTrackDistance = trackTransform.newDistance;
+            }
+
+            // Update cart position
+            updateCart(delta);
+        }
+
+        function updateCart(delta) {
+            if (gameState.cartAttached) {
+                // When attached, cart follows train at fixed distance (7 units behind)
+                const desiredCartDistance = trainTrackDistance - 7;
+
+                // Check if train is on a final piece and stopped
+                const trainTransform = getTrackTransform(trainTrackDistance, currentTrackRoute);
+                const isTrainOnFinalPiece = trainTransform.currentPiece && trainTransform.currentPiece.type === 'final';
+
+                if (isTrainOnFinalPiece && gameState.trainVelocity === 0) {
+                    // Train stopped on final piece - only allow cart to move backwards (increase distance)
+                    gameState.cartTrackDistance = desiredCartDistance;
+                } else {
+                    // Normal operation - cart follows train
+                    gameState.cartTrackDistance = desiredCartDistance;
+                }
+
+                cartTrackRoute = currentTrackRoute;
+            }
+
+            // Update cart position on track
+            const cartTransform = getTrackTransform(gameState.cartTrackDistance, cartTrackRoute);
+            cartGroup.position.copy(cartTransform.position);
+            cartGroup.rotation.y = -cartTransform.rotation;
+
+            // Update cart route if it changed
+            if (cartTransform.routeName && cartTransform.routeName !== cartTrackRoute) {
+                cartTrackRoute = cartTransform.routeName;
+            }
+
+            // Check for player collision with cart to attach it
+            if (!gameState.cartAttached) {
+                const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
+                const distanceToCart = playerWorldPos.distanceTo(cartGroup.position);
+
+                if (distanceToCart < 3) {
+                    gameState.cartAttached = true;
+                    console.log('Cart attached!');
                 }
             }
         }
@@ -1127,10 +1368,66 @@
                 }
             }
 
-            // Check if player is inside the train cabin bounds (including balcony)
+            // Collision detection with cart (when attached)
+            if (gameState.cartAttached) {
+                const playerLocalPosCart = cartGroup.worldToLocal(playerWorldPos.clone());
+                let cartCollisionDetected = false;
+
+                for (const collider of cartColliders) {
+                    const colliderPos = collider.position.clone();
+                    const colliderScale = collider.scale.clone();
+                    const colliderGeometry = collider.geometry;
+                    const halfSize = new THREE.Vector3(
+                        (colliderGeometry.parameters.width || 1) * colliderScale.x / 2,
+                        (colliderGeometry.parameters.height || 1) * colliderScale.y / 2,
+                        (colliderGeometry.parameters.depth || 1) * colliderScale.z / 2
+                    );
+
+                    const diff = new THREE.Vector3().subVectors(playerLocalPosCart, colliderPos);
+                    const overlapX = halfSize.x + playerRadius - Math.abs(diff.x);
+                    const overlapY = halfSize.y + playerHeight / 2 - Math.abs(diff.y);
+                    const overlapZ = halfSize.z + playerRadius - Math.abs(diff.z);
+
+                    if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                        cartCollisionDetected = true;
+                        if (overlapX < overlapY && overlapX < overlapZ) {
+                            playerLocalPosCart.x += overlapX * Math.sign(diff.x);
+                            if (!gameState.isOnTrain) gameState.playerVelocity.x = 0;
+                        } else if (overlapY < overlapZ) {
+                            playerLocalPosCart.y += overlapY * Math.sign(diff.y);
+                            gameState.playerVelocity.y = 0;
+                            if (diff.y > 0) {
+                                gameState.canJump = true;
+                                if (collider === cartFloor) {
+                                    touchingFloor = true;
+                                }
+                            }
+                        } else {
+                            playerLocalPosCart.z += overlapZ * Math.sign(diff.z);
+                            if (!gameState.isOnTrain) gameState.playerVelocity.z = 0;
+                        }
+                    }
+                }
+
+                // Apply cart collision corrections by converting back to train space
+                if (cartCollisionDetected) {
+                    const cartPosInWorld = cartGroup.localToWorld(playerLocalPosCart.clone());
+                    playerLocalPos.copy(trainGroup.worldToLocal(cartPosInWorld));
+                }
+            }
+
+            // Check if player is inside the train cabin bounds (including balcony and attached cart)
             // Train cabin: x: -1.5 to 1.5, z: -2.4 to 4.1 (includes balcony)
-            const insideTrainBounds = playerLocalPos.x > -1.8 && playerLocalPos.x < 1.8 &&
-                                     playerLocalPos.z > -2.7 && playerLocalPos.z < 4.5;
+            // Extended to z: 8.0 to cover gap when cart is attached
+            let insideTrainBounds = playerLocalPos.x > -1.8 && playerLocalPos.x < 1.8 &&
+                                     playerLocalPos.z > -2.7 && playerLocalPos.z < (gameState.cartAttached ? 8.0 : 4.5);
+
+            // Also check if player is inside cart bounds when attached
+            if (gameState.cartAttached && !insideTrainBounds) {
+                const playerLocalPosCart = cartGroup.worldToLocal(playerWorldPos.clone());
+                insideTrainBounds = playerLocalPosCart.x > -1.5 && playerLocalPosCart.x < 1.5 &&
+                                   playerLocalPosCart.z > -2.5 && playerLocalPosCart.z < 2.5;
+            }
 
             // Handle parenting and position updates correctly
             if (touchingFloor && !gameState.isOnTrain) {
