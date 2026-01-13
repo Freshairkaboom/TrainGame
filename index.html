@@ -124,7 +124,7 @@
 
         // Create player object and parent camera to it
         const player = new THREE.Object3D();
-        player.position.set(0, 1.6, 5);
+        player.position.set(-4, 1.2, 5); // Spawn on platform (left side, at platform height 0.3 + player half-height 0.9)
         scene.add(player);
         player.add(camera);
         camera.position.set(0, 0, 0);
@@ -421,7 +421,7 @@
                 const position = new THREE.Vector3();
                 const direction = new THREE.Vector3();
 
-                if (this.type === 'straight' || this.type === 'final') {
+                if (this.type === 'straight' || this.type === 'final' || this.type === 'station') {
                     const alpha = t / this.length;
                     position.lerpVectors(this.startPos, this.endPos, alpha);
                     direction.copy(this.startDir);
@@ -498,6 +498,17 @@
             return piece;
         }
 
+        function createStationPiece(length, startPos, startDir) {
+            const piece = new TrackPiece();
+            piece.type = 'station';
+            piece.startPos.copy(startPos);
+            piece.startDir.copy(startDir).normalize();
+            piece.length = length;
+            piece.endPos.copy(startPos).add(piece.startDir.clone().multiplyScalar(length));
+            piece.endDir.copy(piece.startDir);
+            return piece;
+        }
+
         function createSwitcherPiece(straightLength, curveRadius, curveAngle, startPos, startDir, targetRoute = null) {
             const piece = new TrackPiece();
             piece.type = 'switcher';
@@ -560,10 +571,16 @@
         const routeParentInfo = {}; // Maps branch route name to {parentRoute, switcherPiece}
 
         // Parse and build track from pattern
-        function buildRouteFromPattern(pattern, startPos, startDir, params) {
+        function buildRouteFromPattern(pattern, startPos, startDir, params, routeName = 'main') {
             const trackPieces = [];
             let currentPos = startPos.clone();
             let currentDir = startDir.clone();
+
+            // Auto-add station piece at the start if not already present (only for main route)
+            const hasStation = pattern.some(seg => (typeof seg === 'object' ? seg.type : seg) === '0');
+            if (!hasStation && routeName === 'main') {
+                pattern = ['0', ...pattern];
+            }
 
             pattern.forEach(segment => {
                 let piece;
@@ -571,6 +588,9 @@
                 let targetRoute = typeof segment === 'object' ? segment.targetRoute : null;
 
                 switch(segmentType) {
+                    case '0': // Station
+                        piece = createStationPiece(params.straightLength, currentPos, currentDir);
+                        break;
                     case '1': // Straight
                         piece = createStraightPiece(params.straightLength, currentPos, currentDir);
                         break;
@@ -622,7 +642,8 @@
                     routeConfig.pattern,
                     routeConfig.startPos,
                     routeConfig.startDir,
-                    TRACK_PARAMS
+                    TRACK_PARAMS,
+                    routeName
                 );
             }
         }
@@ -634,12 +655,16 @@
                     routeConfig.pattern,
                     routeConfig.startPos,
                     routeConfig.startDir,
-                    TRACK_PARAMS
+                    TRACK_PARAMS,
+                    routeName
                 );
             }
         }
 
         const trackPieces = trackRoutes['main'];
+
+        // ===== ENVIRONMENT COLLIDERS ARRAY =====
+        const environmentColliders = [];
 
         // Build a map of all track pieces to their routes for connection detection
         const pieceToRouteMap = new Map();
@@ -784,7 +809,6 @@
         waterColliders.push(eastWall);
 
         // ===== ENVIRONMENT OBJECTS (TREES, ROCKS, BUSHES) =====
-        const environmentColliders = [];
 
         // Check if a position is too close to any track
         function isPositionNearTrack(x, z, minDistance) {
@@ -965,6 +989,14 @@
                 createPhysicalSwitch(piece);
                 return;
             }
+
+            // For station pieces, add platform and buildings
+            if (piece.type === 'station') {
+                renderTrackPath(piece, 30);
+                createStation(piece);
+                return;
+            }
+
             renderTrackPath(piece, 30);
 
             // For final pieces, add a stop barrier at the end
@@ -1002,6 +1034,133 @@
             stripe2.position.y = 0.7;
             stripe2.rotation.y = -angle;
             scene.add(stripe2);
+        }
+
+        function createStation(piece) {
+            const midTransform = piece.getTransformAt(piece.length / 2);
+            const angle = Math.atan2(midTransform.direction.x, -midTransform.direction.z);
+
+            // Calculate left side offset using cross product
+            // Left = Up × Forward (right-hand rule)
+            const forward = midTransform.direction.clone().normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const leftDir = new THREE.Vector3().crossVectors(up, forward);
+
+            // Platform - positioned on the left side (where train door is)
+            const platformWidth = 4;
+            const platformLength = piece.length * 0.8;
+            const platformHeight = 0.3;
+            const platformOffset = 4; // Distance from track center
+
+            const platformGeometry = new THREE.BoxGeometry(platformWidth, platformHeight, platformLength);
+            const platformMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+            const platform = new THREE.Mesh(platformGeometry, platformMaterial);
+
+            const platformPos = midTransform.position.clone();
+            platformPos.add(leftDir.clone().multiplyScalar(platformOffset));
+            platformPos.y = platformHeight / 2;
+
+            platform.position.copy(platformPos);
+            platform.rotation.y = -angle;
+            platform.castShadow = true;
+            platform.receiveShadow = true;
+            scene.add(platform);
+
+            // Add platform as a walkable collider (acts as a step/floor)
+            const platformColliderGeometry = new THREE.BoxGeometry(platformWidth, platformHeight, platformLength);
+            const platformCollider = new THREE.Mesh(platformColliderGeometry, new THREE.MeshBasicMaterial({ visible: false }));
+            platformCollider.position.copy(platformPos);
+            platformCollider.rotation.y = -angle;
+            platformCollider.userData.isWalkable = true; // Mark as walkable surface
+            scene.add(platformCollider);
+            environmentColliders.push(platformCollider);
+
+            // Platform edge/safety strip
+            const edgeGeometry = new THREE.BoxGeometry(platformWidth, 0.05, platformLength);
+            const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const edge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+            edge.position.copy(platformPos);
+            edge.position.y = platformHeight + 0.025;
+            edge.rotation.y = -angle;
+            scene.add(edge);
+
+            // Station Building 1 - Main building
+            const building1Width = 6;
+            const building1Height = 4;
+            const building1Depth = 8;
+            const building1Offset = platformOffset + platformWidth / 2 + building1Width / 2;
+
+            const building1Geometry = new THREE.BoxGeometry(building1Width, building1Height, building1Depth);
+            const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xa0522d });
+            const building1 = new THREE.Mesh(building1Geometry, buildingMaterial);
+
+            const building1Pos = midTransform.position.clone();
+            building1Pos.add(leftDir.clone().multiplyScalar(building1Offset));
+            building1Pos.y = building1Height / 2;
+
+            building1.position.copy(building1Pos);
+            building1.rotation.y = -angle;
+            building1.castShadow = true;
+            building1.receiveShadow = true;
+            scene.add(building1);
+            environmentColliders.push(building1);
+
+            // Roof for building 1
+            const roof1Geometry = new THREE.BoxGeometry(building1Width + 0.5, 0.5, building1Depth + 0.5);
+            const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+            const roof1 = new THREE.Mesh(roof1Geometry, roofMaterial);
+            roof1.position.copy(building1Pos);
+            roof1.position.y = building1Height + 0.25;
+            roof1.rotation.y = -angle;
+            roof1.castShadow = true;
+            scene.add(roof1);
+
+            // Station Building 2 - Smaller building
+            const building2Width = 4;
+            const building2Height = 3;
+            const building2Depth = 5;
+            const building2OffsetLateral = building1Offset + building1Width / 2 + building2Width / 2 + 0.5;
+            const building2OffsetLongitudinal = 6; // Offset along track direction
+
+            const building2Geometry = new THREE.BoxGeometry(building2Width, building2Height, building2Depth);
+            const building2 = new THREE.Mesh(building2Geometry, buildingMaterial);
+
+            const building2Pos = midTransform.position.clone();
+            building2Pos.add(leftDir.clone().multiplyScalar(building2OffsetLateral));
+            building2Pos.add(midTransform.direction.clone().multiplyScalar(building2OffsetLongitudinal));
+            building2Pos.y = building2Height / 2;
+
+            building2.position.copy(building2Pos);
+            building2.rotation.y = -angle;
+            building2.castShadow = true;
+            building2.receiveShadow = true;
+            scene.add(building2);
+            environmentColliders.push(building2);
+
+            // Roof for building 2
+            const roof2Geometry = new THREE.BoxGeometry(building2Width + 0.5, 0.5, building2Depth + 0.5);
+            const roof2 = new THREE.Mesh(roof2Geometry, roofMaterial);
+            roof2.position.copy(building2Pos);
+            roof2.position.y = building2Height + 0.25;
+            roof2.rotation.y = -angle;
+            roof2.castShadow = true;
+            scene.add(roof2);
+
+            // Add some windows to buildings
+            const windowMaterial = new THREE.MeshStandardMaterial({ color: 0x87ceeb });
+
+            // Windows for building 1 (facing track)
+            for (let i = -1; i <= 1; i++) {
+                const windowGeometry = new THREE.BoxGeometry(0.05, 1.0, 1.0);
+                const window = new THREE.Mesh(windowGeometry, windowMaterial);
+                const windowPos = building1Pos.clone();
+                windowPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 - 0.025));
+                windowPos.add(midTransform.direction.clone().multiplyScalar(i * 2.5));
+                windowPos.y = building1Height / 2 + 0.5;
+                window.position.copy(windowPos);
+                window.rotation.y = -angle;
+                scene.add(window);
+            }
         }
 
         function renderTrackPath(piece, numSegments) {
@@ -1142,10 +1301,13 @@
                 let distanceToSwitcher = 0;
                 for (const piece of parentRoute) {
                     if (piece === switcher) {
-                        // Position should be at the end of the alternate path (plus negative overshoot)
+                        // Return to the alternate path position on the parent route
+                        // distanceToSwitcher is at the START of the switcher piece
+                        // We need to add the alternate path length and the negative overshoot
                         const newDistance = distanceToSwitcher + switcher.alternatePath.length + remainingDistance;
                         const result = getTrackTransform(newDistance, parentInfo.parentRoute);
                         result.newDistance = newDistance;
+                        result.routeChanged = true;
                         return result;
                     }
                     distanceToSwitcher += piece.length;
@@ -1192,6 +1354,7 @@
                     // Switch to the target route, continuing with remaining distance
                     const result = getTrackTransform(remainingDistance, piece.targetRoute);
                     result.newDistance = remainingDistance; // Pass the new distance back
+                    result.routeChanged = true;
                     return result;
                 }
             }
@@ -1211,7 +1374,7 @@
             return { position: transform.position, rotation, routeName };
         }
 
-        let trainTrackDistance = 0;
+        let trainTrackDistance = 20; // Start at middle of station track
         let cartTrackRoute = 'main';
 
         // ===== CARGO CART =====
@@ -1525,6 +1688,12 @@
             trainTrackDistance -= gameState.trainVelocity * delta;
             const trackTransform = getTrackTransform(trainTrackDistance, currentTrackRoute);
 
+            // If route changed, update distance and route name
+            if (trackTransform.routeChanged && trackTransform.newDistance !== undefined) {
+                trainTrackDistance = trackTransform.newDistance;
+                currentTrackRoute = trackTransform.routeName;
+            }
+
             // Apply strong deceleration when on a final piece (approaching barrier)
             if (trackTransform.currentPiece && trackTransform.currentPiece.type === 'final') {
                 // Calculate distance to the END of the final piece
@@ -1548,7 +1717,7 @@
             trainGroup.position.copy(trackTransform.position);
             trainGroup.rotation.y = -trackTransform.rotation;
 
-            // Update current route if it changed
+            // Update current route if it changed (also handled above for transitions)
             if (trackTransform.routeName && trackTransform.routeName !== currentTrackRoute) {
                 currentTrackRoute = trackTransform.routeName;
             }
@@ -1804,16 +1973,28 @@
             // Ground collision
             const playerWorldPos2 = player.getWorldPosition(new THREE.Vector3());
             const playerWorldY = playerWorldPos2.y;
+            const playerBottom = playerWorldY - playerHeight / 2;
 
-            if (playerWorldY - playerHeight/2 <= 0) {
-                if (gameState.isOnTrain) {
-                    // If on train, set in local space
-                    player.position.y = trainGroup.worldToLocal(new THREE.Vector3(0, playerHeight/2, 0)).y;
-                } else {
-                    // If not on train, set in world space
-                    player.position.y = playerHeight/2;
+            // Check if player is falling below ground level
+            if (playerBottom < 0) {
+                // Only snap to ground if not already supported by an elevated platform
+                // Platform is at y=0.3, so if player bottom is near that, they're on platform
+                const isOnPlatform = playerBottom > 0.15 && playerBottom < 0.45;
+
+                if (!isOnPlatform) {
+                    if (gameState.isOnTrain) {
+                        // If on train, set in local space
+                        const targetWorldPos = new THREE.Vector3(playerWorldPos2.x, playerHeight/2, playerWorldPos2.z);
+                        player.position.copy(trainGroup.worldToLocal(targetWorldPos));
+                    } else {
+                        // If not on train, set in world space
+                        player.position.y = playerHeight/2;
+                    }
+                    gameState.playerVelocity.y = 0;
+                    gameState.canJump = true;
                 }
-                gameState.playerVelocity.y = 0;
+            } else if (playerBottom <= 0.05 && playerBottom >= 0) {
+                // Player is standing on ground - enable jumping
                 gameState.canJump = true;
             }
 
@@ -1845,19 +2026,95 @@
                 }
             }
 
-            // Environment collision (trees, rocks, bushes) - only when not on train
-            if (!gameState.isOnTrain) {
-                for (const collider of environmentColliders) {
-                    const colliderPos = collider.position.clone();
-                    const colliderGeometry = collider.geometry;
+            // Environment collision (trees, rocks, bushes, station buildings)
+            // Always check walkable platforms (stations), but only check other objects when not on train
+            for (const collider of environmentColliders) {
+                const colliderPos = collider.position.clone();
+                const colliderGeometry = collider.geometry;
+                const isWalkable = collider.userData.isWalkable === true;
 
-                    // Handle both cylinder and sphere colliders
+                // Skip non-walkable collisions if player is on train
+                if (!isWalkable && gameState.isOnTrain) continue;
+
+                // Handle box geometries (buildings, platforms)
+                if (colliderGeometry.parameters && colliderGeometry.parameters.width !== undefined) {
+                    const colliderScale = collider.scale.clone();
+                    const colliderRotation = collider.rotation.y;
+
+                    // Get player position relative to collider
+                    const localPlayerPos = playerWorldPos2.clone().sub(colliderPos);
+
+                    // Rotate to collider's local space
+                    const cosR = Math.cos(-colliderRotation);
+                    const sinR = Math.sin(-colliderRotation);
+                    const rotatedX = localPlayerPos.x * cosR - localPlayerPos.z * sinR;
+                    const rotatedZ = localPlayerPos.x * sinR + localPlayerPos.z * cosR;
+
+                    const halfSize = new THREE.Vector3(
+                        (colliderGeometry.parameters.width || 1) * colliderScale.x / 2,
+                        (colliderGeometry.parameters.height || 1) * colliderScale.y / 2,
+                        (colliderGeometry.parameters.depth || 1) * colliderScale.z / 2
+                    );
+
+                    const overlapX = halfSize.x + playerRadius - Math.abs(rotatedX);
+                    const overlapY = halfSize.y + playerHeight / 2 - Math.abs(localPlayerPos.y);
+                    const overlapZ = halfSize.z + playerRadius - Math.abs(rotatedZ);
+
+                    if (isWalkable) {
+                        // For walkable platforms, check horizontal overlap only
+                        if (overlapX > 0 && overlapZ > 0) {
+                            const topSurface = colliderPos.y + halfSize.y;
+                            // Use world position for comparison (playerWorldPos2 is already calculated above)
+                            const playerBottom = playerWorldPos2.y - playerHeight / 2;
+
+                            // Check if player is near the platform surface
+                            const distanceFromTop = playerBottom - topSurface;
+
+                            // If player is close to platform and falling/standing (not jumping up)
+                            if (distanceFromTop >= -0.5 && distanceFromTop <= 0.1 && gameState.playerVelocity.y <= 0) {
+                                // Snap player to top of platform (in appropriate space)
+                                if (gameState.isOnTrain) {
+                                    // Convert world position to train local space
+                                    const targetWorldPos = new THREE.Vector3(playerWorldPos2.x, topSurface + playerHeight / 2, playerWorldPos2.z);
+                                    player.position.copy(trainGroup.worldToLocal(targetWorldPos));
+                                } else {
+                                    player.position.y = topSurface + playerHeight / 2;
+                                }
+                                gameState.playerVelocity.y = 0;
+                                gameState.canJump = true;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Non-walkable objects (buildings) - full 3D collision
+                    if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                        let pushX = 0, pushZ = 0;
+                        if (overlapX < overlapZ) {
+                            pushX = overlapX * Math.sign(rotatedX);
+                        } else {
+                            pushZ = overlapZ * Math.sign(rotatedZ);
+                        }
+
+                        // Rotate push back to world space
+                        const worldPushX = pushX * cosR + pushZ * sinR;
+                        const worldPushZ = -pushX * sinR + pushZ * cosR;
+
+                        player.position.x += worldPushX;
+                        player.position.z += worldPushZ;
+                        gameState.playerVelocity.x *= 0.5;
+                        gameState.playerVelocity.z *= 0.5;
+                    }
+                    continue;
+                }
+
+                // Handle cylinder and sphere colliders
                     let radius, height;
-                    if (colliderGeometry.parameters.radiusTop !== undefined) {
+                    if (colliderGeometry.parameters && colliderGeometry.parameters.radiusTop !== undefined) {
                         // Cylinder
                         radius = colliderGeometry.parameters.radiusTop;
                         height = colliderGeometry.parameters.height || 3;
-                    } else if (colliderGeometry.parameters.radius !== undefined) {
+                    } else if (colliderGeometry.parameters && colliderGeometry.parameters.radius !== undefined) {
                         // Sphere or dodecahedron
                         radius = colliderGeometry.parameters.radius;
                         height = radius * 2;
@@ -1878,7 +2135,6 @@
                         gameState.playerVelocity.x *= 0.5;
                         gameState.playerVelocity.z *= 0.5;
                     }
-                }
             }
 
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
