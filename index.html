@@ -70,6 +70,8 @@
         Space - Jump<br>
         Mouse - Look Around<br>
         Click - Interact with Levers & Switches<br>
+        F - Toggle Instructions<br>
+        Esc - Pause/Unpause<br>
         <br>
         <strong>Levers:</strong><br>
         🟡 Yellow - Reverse<br>
@@ -77,6 +79,9 @@
         🔴 Red - Brake<br>
         <br>
         🟠 Track Switches - Change Routes
+    </div>
+    <div id="pause-overlay" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0, 0, 0, 0.9); padding: 30px 60px; border-radius: 10px; font-size: 32px; z-index: 100;">
+        PAUSED
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
     <div id="version">v1.10</div>
@@ -98,6 +103,8 @@
             autoStopDeceleration: 0.3,
             previousTrainPosition: new THREE.Vector3(),
             previousTrainRotation: 0,
+            isPaused: false,
+            showInstructions: true,
             levers: {
                 forward: false,
                 reverse: false,
@@ -1051,8 +1058,34 @@
         const interactionPrompt = document.getElementById('interaction-prompt');
 
         // ===== INPUT HANDLING =====
+        const instructionsEl = document.getElementById('instructions');
+        const pauseOverlay = document.getElementById('pause-overlay');
+
         document.addEventListener('keydown', (e) => {
             gameState.keys[e.code] = true;
+
+            // Toggle instructions with F
+            if (e.code === 'KeyF') {
+                gameState.showInstructions = !gameState.showInstructions;
+                instructionsEl.style.display = gameState.showInstructions ? 'block' : 'none';
+            }
+
+            // Toggle pause with Escape
+            if (e.code === 'Escape') {
+                e.preventDefault();
+                gameState.isPaused = !gameState.isPaused;
+                pauseOverlay.style.display = gameState.isPaused ? 'block' : 'none';
+
+                // Release pointer lock when paused, request it when unpaused
+                if (gameState.isPaused) {
+                    if (document.pointerLockElement) {
+                        document.exitPointerLock();
+                    }
+                } else {
+                    // Unpause - request pointer lock again
+                    renderer.domElement.requestPointerLock();
+                }
+            }
         });
 
         document.addEventListener('keyup', (e) => {
@@ -1512,8 +1545,11 @@
             const delta = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
 
-            updateTrain(delta);
-            updatePlayer(delta);
+            // Only update game state if not paused
+            if (!gameState.isPaused) {
+                updateTrain(delta);
+                updatePlayer(delta);
+            }
 
             renderer.render(scene, camera);
         }
