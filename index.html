@@ -69,15 +69,17 @@
         WASD - Move<br>
         Space - Jump<br>
         Mouse - Look Around<br>
-        Click - Interact with Levers<br>
+        Click - Interact with Levers & Switches<br>
         <br>
         <strong>Levers:</strong><br>
-        🟡 Yellow - Forward<br>
-        🟢 Green - Reverse<br>
-        🔴 Red - Brake
+        🟡 Yellow - Reverse<br>
+        🟢 Green - Forward<br>
+        🔴 Red - Brake<br>
+        <br>
+        🟠 Track Switches - Change Routes
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
-    <div id="version">v1.8</div>
+    <div id="version">v1.10</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
@@ -201,14 +203,87 @@
         windowFrameRight.position.set(0.55, 1.3, -2.35);
         trainGroup.add(windowFrameRight);
 
-        // Back wall
-        const backWallGeometry = new THREE.BoxGeometry(3, 2.0, 0.2);
-        const backWall = new THREE.Mesh(backWallGeometry, wallMaterial);
-        backWall.position.set(0, 1.3, 2.4);
-        backWall.castShadow = true;
-        backWall.receiveShadow = true;
-        trainGroup.add(backWall);
-        trainColliders.push(backWall);
+        // Door frame material (used for both side and back doors)
+        const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0xf39c12 });
+
+        // Back wall (with door opening)
+        const backWallLeft = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.0, 0.2), wallMaterial);
+        backWallLeft.position.set(-1.0, 1.3, 2.4);
+        backWallLeft.castShadow = true;
+        trainGroup.add(backWallLeft);
+        trainColliders.push(backWallLeft);
+
+        const backWallRight = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.0, 0.2), wallMaterial);
+        backWallRight.position.set(1.0, 1.3, 2.4);
+        backWallRight.castShadow = true;
+        trainGroup.add(backWallRight);
+        trainColliders.push(backWallRight);
+
+        const backWallTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.2), wallMaterial);
+        backWallTop.position.set(0, 2.25, 2.4);
+        backWallTop.castShadow = true;
+        trainGroup.add(backWallTop);
+        trainColliders.push(backWallTop);
+
+        // Back door frame
+        const backDoorFrameTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 0.15), doorFrameMaterial);
+        backDoorFrameTop.position.set(0, 2.1, 2.35);
+        trainGroup.add(backDoorFrameTop);
+
+        const backDoorFrameLeft = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 0.15), doorFrameMaterial);
+        backDoorFrameLeft.position.set(-0.5, 1.4, 2.35);
+        trainGroup.add(backDoorFrameLeft);
+
+        const backDoorFrameRight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 0.15), doorFrameMaterial);
+        backDoorFrameRight.position.set(0.5, 1.4, 2.35);
+        trainGroup.add(backDoorFrameRight);
+
+        // Balcony floor
+        const balconyFloorGeometry = new THREE.BoxGeometry(2.0, 0.1, 1.5);
+        const balconyFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x7f8c8d });
+        const balconyFloor = new THREE.Mesh(balconyFloorGeometry, balconyFloorMaterial);
+        balconyFloor.position.set(0, 0.3, 3.15);
+        balconyFloor.castShadow = true;
+        balconyFloor.receiveShadow = true;
+        trainGroup.add(balconyFloor);
+        trainColliders.push(balconyFloor);
+
+        // Balcony railings
+        const railingMaterial = new THREE.MeshStandardMaterial({ color: 0x34495e });
+
+        // Left railing
+        const leftRailing = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 1.5), railingMaterial);
+        leftRailing.position.set(-1.0, 0.7, 3.35);
+        leftRailing.castShadow = true;
+        trainGroup.add(leftRailing);
+        trainColliders.push(leftRailing);
+
+        // Right railing
+        const rightRailing = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 1.5), railingMaterial);
+        rightRailing.position.set(1.0, 0.7, 3.35);
+        rightRailing.castShadow = true;
+        trainGroup.add(rightRailing);
+        trainColliders.push(rightRailing);
+
+        // Back railing
+        const backRailing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 0.1), railingMaterial);
+        backRailing.position.set(0, 0.7, 4.1);
+        backRailing.castShadow = true;
+        trainGroup.add(backRailing);
+        trainColliders.push(backRailing);
+
+        // Railing top bar
+        const railingTop = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.1, 0.1), railingMaterial);
+        railingTop.position.set(0, 1.0, 4.1);
+        trainGroup.add(railingTop);
+
+        const railingTopLeft = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.5), railingMaterial);
+        railingTopLeft.position.set(-1.0, 1.0, 3.35);
+        trainGroup.add(railingTopLeft);
+
+        const railingTopRight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.5), railingMaterial);
+        railingTopRight.position.set(1.0, 1.0, 3.35);
+        trainGroup.add(railingTopRight);
 
         // Left wall (with door opening)
         const leftWallFront = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.0, 2), wallMaterial);
@@ -225,7 +300,6 @@
 
         // Door frame
         const doorFrameGeometry = new THREE.BoxGeometry(0.15, 2.2, 0.1);
-        const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0xf39c12 });
         const doorFrameTop = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 1.6), doorFrameMaterial);
         doorFrameTop.position.set(-1.5, 2.55, 0);
         trainGroup.add(doorFrameTop);
@@ -297,6 +371,7 @@
                 this.endDir = new THREE.Vector3(0, 0, -1);
                 this.length = 0;
                 this.type = 'straight';
+                this.switchState = 'straight'; // For switcher pieces
             }
 
             getTransformAt(t) {
@@ -318,6 +393,10 @@
                     // Use exact same formula as endDir
                     const tangentAngle = angle + (this.turnAngle > 0 ? Math.PI / 2 : -Math.PI / 2);
                     direction.set(Math.cos(tangentAngle), 0, Math.sin(tangentAngle));
+                } else if (this.type === 'switcher') {
+                    // Use the active path based on switch state
+                    const activePath = this.switchState === 'straight' ? this.straightPath : this.alternatePath;
+                    return activePath.getTransformAt(t);
                 }
 
                 return { position, direction };
@@ -364,39 +443,95 @@
             return piece;
         }
 
+        function createSwitcherPiece(straightLength, curveRadius, curveAngle, startPos, startDir, targetRoute = null) {
+            const piece = new TrackPiece();
+            piece.type = 'switcher';
+            piece.startPos.copy(startPos);
+            piece.startDir.copy(startDir).normalize();
+            piece.switchState = 'straight'; // Default to straight
+            piece.targetRoute = targetRoute; // Which route the alternate path leads to
+
+            // Create the straight path
+            piece.straightPath = createStraightPiece(straightLength, startPos, startDir);
+
+            // Create the alternate curved path
+            piece.alternatePath = createCurvePiece(curveRadius, curveAngle, startPos, startDir);
+
+            // Use straight path by default for end position/direction
+            piece.length = piece.straightPath.length;
+            piece.endPos.copy(piece.straightPath.endPos);
+            piece.endDir.copy(piece.straightPath.endDir);
+
+            return piece;
+        }
+
         // ===== TRACK CONFIGURATION =====
         // Track Definition: 1=straight, 2=right_curve, 3=left_curve
+        // Switcher format: {type:4/5, targetRoute:'routeName'}
         // Edit this configuration to create your track layout
-        const TRACK_CONFIG = {
-            pattern: "1, 2, 1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1",
+        const TRACK_ROUTES = {
+            main: {
+                pattern: [
+                    '1', '1',
+                    {type: '4', targetRoute: 'branch'},  // Switcher that leads to branch route
+                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '2', '1', '2', '1', '1', '1'
+                ],
+                startPos: new THREE.Vector3(0, 0, 0),
+                startDir: new THREE.Vector3(0, 0, -1)
+            },
+            branch: {
+                pattern: ['1', '1', '1', '2', '2', '1', '1'],
+                // Start position will be set by the switcher
+                startPos: null,
+                startDir: null
+            }
+        };
+
+        const TRACK_PARAMS = {
             straightLength: 50,
             curveRadius: 30,
             curveAngle: Math.PI / 2  // 90 degrees
         };
 
-        // Parse and build track from configuration
-        function buildTrackFromConfig(config) {
+        // Array to hold all physical switch objects
+        const trackSwitches = [];
+
+        // Object to hold all track routes
+        const trackRoutes = {};
+        let currentTrackRoute = 'main';
+
+        // Track parent relationships for bidirectional switching
+        const routeParentInfo = {}; // Maps branch route name to {parentRoute, switcherPiece}
+
+        // Parse and build track from pattern
+        function buildRouteFromPattern(pattern, startPos, startDir, params) {
             const trackPieces = [];
-            let currentPos = new THREE.Vector3(0, 0, 0);
-            let currentDir = new THREE.Vector3(0, 0, -1);
+            let currentPos = startPos.clone();
+            let currentDir = startDir.clone();
 
-            const segments = config.pattern.split(',').map(s => s.trim());
-
-            segments.forEach(segment => {
+            pattern.forEach(segment => {
                 let piece;
+                let segmentType = typeof segment === 'object' ? segment.type : segment;
+                let targetRoute = typeof segment === 'object' ? segment.targetRoute : null;
 
-                switch(segment) {
+                switch(segmentType) {
                     case '1': // Straight
-                        piece = createStraightPiece(config.straightLength, currentPos, currentDir);
+                        piece = createStraightPiece(params.straightLength, currentPos, currentDir);
                         break;
                     case '2': // Right curve
-                        piece = createCurvePiece(config.curveRadius, config.curveAngle, currentPos, currentDir);
+                        piece = createCurvePiece(params.curveRadius, params.curveAngle, currentPos, currentDir);
                         break;
                     case '3': // Left curve
-                        piece = createCurvePiece(config.curveRadius, -config.curveAngle, currentPos, currentDir);
+                        piece = createCurvePiece(params.curveRadius, -params.curveAngle, currentPos, currentDir);
+                        break;
+                    case '4': // Switcher with right turn option
+                        piece = createSwitcherPiece(params.straightLength, params.curveRadius, params.curveAngle, currentPos, currentDir, targetRoute);
+                        break;
+                    case '5': // Switcher with left turn option
+                        piece = createSwitcherPiece(params.straightLength, params.curveRadius, -params.curveAngle, currentPos, currentDir, targetRoute);
                         break;
                     default:
-                        console.warn(`Unknown track segment: ${segment}`);
+                        console.warn(`Unknown track segment: ${segmentType}`);
                         return;
                 }
 
@@ -404,44 +539,68 @@
                     trackPieces.push(piece);
                     currentPos.copy(piece.endPos);
                     currentDir.copy(piece.endDir);
+
+                    // If this is a switcher with a target route, set up the branch route's start
+                    if (piece.type === 'switcher' && piece.targetRoute && TRACK_ROUTES[piece.targetRoute]) {
+                        TRACK_ROUTES[piece.targetRoute].startPos = piece.alternatePath.endPos.clone();
+                        TRACK_ROUTES[piece.targetRoute].startDir = piece.alternatePath.endDir.clone();
+                        // Store parent route info for reverse transitions
+                        routeParentInfo[piece.targetRoute] = {
+                            parentRoute: 'main',
+                            switcherPiece: piece
+                        };
+                    }
                 }
             });
 
             return trackPieces;
         }
 
-        const trackPieces = buildTrackFromConfig(TRACK_CONFIG);
-
-        // Detect if track forms a loop
-        let isLoopTrack = false;
-        let totalTrackLength = 0;
-
-        if (trackPieces.length > 0) {
-            const firstPiece = trackPieces[0];
-            const lastPiece = trackPieces[trackPieces.length - 1];
-
-            // Calculate total track length
-            trackPieces.forEach(piece => {
-                totalTrackLength += piece.length;
-            });
-
-            // Check if end position connects with start position
-            const positionMatch = lastPiece.endPos.distanceTo(firstPiece.startPos) < 0.1;
-
-            // Check if end direction matches start direction (within tolerance)
-            const directionMatch = lastPiece.endDir.dot(firstPiece.startDir) > 0.99;
-
-            if (positionMatch && directionMatch) {
-                isLoopTrack = true;
-                console.log('Loop track detected! Train will loop infinitely.');
+        // Build all track routes
+        for (const [routeName, routeConfig] of Object.entries(TRACK_ROUTES)) {
+            if (routeConfig.startPos && routeConfig.startDir) {
+                trackRoutes[routeName] = buildRouteFromPattern(
+                    routeConfig.pattern,
+                    routeConfig.startPos,
+                    routeConfig.startDir,
+                    TRACK_PARAMS
+                );
             }
         }
 
-        trackPieces.forEach(piece => renderTrackPiece(piece));
+        // Build routes that depend on switchers (branch routes)
+        for (const [routeName, routeConfig] of Object.entries(TRACK_ROUTES)) {
+            if (!trackRoutes[routeName] && routeConfig.startPos && routeConfig.startDir) {
+                trackRoutes[routeName] = buildRouteFromPattern(
+                    routeConfig.pattern,
+                    routeConfig.startPos,
+                    routeConfig.startDir,
+                    TRACK_PARAMS
+                );
+            }
+        }
+
+        const trackPieces = trackRoutes['main'];
+
+        // Render all track routes
+        for (const [routeName, route] of Object.entries(trackRoutes)) {
+            if (route) {
+                route.forEach(piece => renderTrackPiece(piece));
+            }
+        }
 
         function renderTrackPiece(piece) {
-            const numSegments = 30;
+            // For switcher pieces, render both paths
+            if (piece.type === 'switcher') {
+                renderTrackPath(piece.straightPath, 30);
+                renderTrackPath(piece.alternatePath, 30);
+                createPhysicalSwitch(piece);
+                return;
+            }
+            renderTrackPath(piece, 30);
+        }
 
+        function renderTrackPath(piece, numSegments) {
             for (let i = 0; i < numSegments; i++) {
                 const t1 = (i / numSegments) * piece.length;
                 const t2 = ((i + 1) / numSegments) * piece.length;
@@ -489,32 +648,144 @@
             scene.add(finalCrosstie);
         }
 
-        function getTrackTransform(distance) {
-            let remainingDistance = distance;
+        function createPhysicalSwitch(switcherPiece) {
+            const switchGroup = new THREE.Group();
 
-            // If track is a loop, wrap the distance
-            if (isLoopTrack && totalTrackLength > 0) {
-                // Normalize distance to be within [0, totalTrackLength]
-                remainingDistance = ((remainingDistance % totalTrackLength) + totalTrackLength) % totalTrackLength;
+            // Base platform
+            const baseGeometry = new THREE.BoxGeometry(0.6, 0.2, 0.6);
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.castShadow = true;
+            base.receiveShadow = true;
+            switchGroup.add(base);
+
+            // Switch lever
+            const leverGroup = new THREE.Group();
+            const leverHandleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
+            const leverHandleMaterial = new THREE.MeshStandardMaterial({ color: 0xff9800 });
+            const leverHandle = new THREE.Mesh(leverHandleGeometry, leverHandleMaterial);
+            leverHandle.position.y = 0.25;
+            leverGroup.add(leverHandle);
+
+            const leverKnobGeometry = new THREE.SphereGeometry(0.08, 8, 8);
+            const leverKnob = new THREE.Mesh(leverKnobGeometry, leverHandleMaterial);
+            leverKnob.position.y = 0.5;
+            leverGroup.add(leverKnob);
+
+            leverGroup.position.y = 0.1;
+            switchGroup.add(leverGroup);
+
+            // Position the switch at the start of the switcher piece, offset to the left
+            const startTransform = switcherPiece.getTransformAt(0);
+            const angle = Math.atan2(startTransform.direction.x, -startTransform.direction.z);
+
+            // Calculate left offset perpendicular to track direction
+            const leftOffset = new THREE.Vector3(
+                -startTransform.direction.z * 2.5,  // Perpendicular to direction
+                0,
+                startTransform.direction.x * 2.5
+            );
+
+            switchGroup.position.copy(startTransform.position).add(leftOffset);
+            switchGroup.position.y = 0.2;
+            switchGroup.rotation.y = -angle;
+
+            // Store reference to switcher piece and lever group
+            switchGroup.userData = {
+                isSwitch: true,
+                switcherPiece: switcherPiece,
+                leverGroup: leverGroup
+            };
+
+            scene.add(switchGroup);
+            trackSwitches.push(switchGroup);
+
+            // Initial lever position based on switch state
+            updateSwitchVisual(switchGroup);
+        }
+
+        function updateSwitchVisual(switchGroup) {
+            const switcherPiece = switchGroup.userData.switcherPiece;
+            const leverGroup = switchGroup.userData.leverGroup;
+
+            // Rotate lever based on state: straight = 0, alternate = 45 degrees
+            if (switcherPiece.switchState === 'straight') {
+                leverGroup.rotation.z = 0;
+            } else {
+                leverGroup.rotation.z = Math.PI / 4; // 45 degrees
+            }
+        }
+
+        function toggleTrackSwitch(switcherPiece) {
+            if (switcherPiece.switchState === 'straight') {
+                switcherPiece.switchState = 'alternate';
+            } else {
+                switcherPiece.switchState = 'straight';
+            }
+        }
+
+        function getTrackTransform(distance, routeName) {
+            let remainingDistance = distance;
+            const currentRoute = trackRoutes[routeName] || trackRoutes['main'];
+
+            // Handle reverse transition: if going backward past start of branch route
+            if (remainingDistance < 0 && routeName !== 'main' && routeParentInfo[routeName]) {
+                const parentInfo = routeParentInfo[routeName];
+                const parentRoute = trackRoutes[parentInfo.parentRoute];
+                const switcher = parentInfo.switcherPiece;
+
+                // Find the distance to the switcher on the parent route
+                let distanceToSwitcher = 0;
+                for (const piece of parentRoute) {
+                    if (piece === switcher) {
+                        // Position should be at the end of the alternate path (plus negative overshoot)
+                        const newDistance = distanceToSwitcher + switcher.alternatePath.length + remainingDistance;
+                        const result = getTrackTransform(newDistance, parentInfo.parentRoute);
+                        result.newDistance = newDistance;
+                        return result;
+                    }
+                    distanceToSwitcher += piece.length;
+                }
             }
 
-            for (const piece of trackPieces) {
-                if (remainingDistance <= piece.length) {
+            // Calculate total length for this route
+            let routeLength = 0;
+            currentRoute.forEach(piece => routeLength += piece.length);
+
+            for (let i = 0; i < currentRoute.length; i++) {
+                const piece = currentRoute[i];
+
+                // For switchers in alternate mode, use the alternate path length
+                let effectiveLength = piece.length;
+                if (piece.type === 'switcher' && piece.switchState === 'alternate') {
+                    effectiveLength = piece.alternatePath.length;
+                }
+
+                if (remainingDistance <= effectiveLength) {
                     const transform = piece.getTransformAt(remainingDistance);
                     const rotation = Math.atan2(transform.direction.x, -transform.direction.z);
-                    return { position: transform.position, rotation };
+                    return { position: transform.position, rotation, routeName };
                 }
-                remainingDistance -= piece.length;
+
+                remainingDistance -= effectiveLength;
+
+                // Check if this is a switcher and train should switch routes
+                if (piece.type === 'switcher' && piece.switchState === 'alternate' && piece.targetRoute) {
+                    // Switch to the target route, continuing with remaining distance
+                    const result = getTrackTransform(remainingDistance, piece.targetRoute);
+                    result.newDistance = remainingDistance; // Pass the new distance back
+                    return result;
+                }
             }
 
-            // If not a loop, continue straight past the end
-            const lastPiece = trackPieces[trackPieces.length - 1];
+            // Continue straight past the end
+            const lastPiece = currentRoute[currentRoute.length - 1];
             const lastTransform = lastPiece.getTransformAt(lastPiece.length);
             const position = lastTransform.position.clone().add(
                 lastTransform.direction.clone().multiplyScalar(remainingDistance)
             );
             const rotation = Math.atan2(lastTransform.direction.x, -lastTransform.direction.z);
-            return { position, rotation };
+            return { position, rotation, routeName };
         }
 
         let trainTrackDistance = 0;
@@ -601,10 +872,11 @@
                 renderer.domElement.requestPointerLock();
             } else {
                 raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-                const intersects = raycaster.intersectObjects(levers, true);
 
-                if (intersects.length > 0) {
-                    let leverObj = intersects[0].object;
+                // Check for train lever interactions
+                const leverIntersects = raycaster.intersectObjects(levers, true);
+                if (leverIntersects.length > 0) {
+                    let leverObj = leverIntersects[0].object;
                     while (leverObj.parent && !leverObj.userData.isLever) {
                         leverObj = leverObj.parent;
                     }
@@ -612,6 +884,22 @@
                     if (leverObj.userData.isLever) {
                         toggleLever(leverObj.userData.type);
                         updateLeverVisuals(leverObj);
+                        return;
+                    }
+                }
+
+                // Check for track switch interactions
+                const switchIntersects = raycaster.intersectObjects(trackSwitches, true);
+                if (switchIntersects.length > 0) {
+                    let switchObj = switchIntersects[0].object;
+                    while (switchObj.parent && !switchObj.userData.isSwitch) {
+                        switchObj = switchObj.parent;
+                    }
+
+                    if (switchObj.userData.isSwitch) {
+                        const switcherPiece = switchObj.userData.switcherPiece;
+                        toggleTrackSwitch(switcherPiece);
+                        updateSwitchVisual(switchObj);
                     }
                 }
             }
@@ -691,9 +979,18 @@
             }
 
             trainTrackDistance -= gameState.trainVelocity * delta;
-            const trackTransform = getTrackTransform(trainTrackDistance);
+            const trackTransform = getTrackTransform(trainTrackDistance, currentTrackRoute);
             trainGroup.position.copy(trackTransform.position);
             trainGroup.rotation.y = -trackTransform.rotation;
+
+            // Update current route if it changed and reset distance
+            if (trackTransform.routeName && trackTransform.routeName !== currentTrackRoute) {
+                currentTrackRoute = trackTransform.routeName;
+                // Reset distance to what was returned (the remaining distance on new route)
+                if (trackTransform.newDistance !== undefined) {
+                    trainTrackDistance = trackTransform.newDistance;
+                }
+            }
         }
 
         function updatePlayer(delta) {
@@ -781,7 +1078,7 @@
                         gameState.playerVelocity.y = 0;
                         if (diff.y > 0) {
                             gameState.canJump = true;
-                            if (collider === trainFloor) {
+                            if (collider === trainFloor || collider === balconyFloor) {
                                 touchingFloor = true;
                             }
                         }
@@ -792,16 +1089,47 @@
                 }
             }
 
+            // Check if player is inside the train cabin bounds (including balcony)
+            // Train cabin: x: -1.5 to 1.5, z: -2.4 to 4.1 (includes balcony)
+            const insideTrainBounds = playerLocalPos.x > -1.8 && playerLocalPos.x < 1.8 &&
+                                     playerLocalPos.z > -2.7 && playerLocalPos.z < 4.5;
+
             // Handle parenting and position updates correctly
             if (touchingFloor && !gameState.isOnTrain) {
                 // Attach to train and update position in train's local space
+                // Get the camera's current world rotation before attaching
+                const cameraWorldQuaternion = new THREE.Quaternion();
+                camera.getWorldQuaternion(cameraWorldQuaternion);
+                const cameraWorldEuler = new THREE.Euler().setFromQuaternion(cameraWorldQuaternion, 'YXZ');
+
                 trainGroup.attach(player);
                 gameState.isOnTrain = true;
                 player.position.copy(playerLocalPos);
-            } else if (!touchingFloor && gameState.isOnTrain) {
-                // Detach from train
+
+                // Reset player rotation to zero in the train's local space
+                player.rotation.set(0, 0, 0);
+
+                // Calculate what mouseMovement.x should be to maintain the same world rotation
+                // When on train: camera world rotation = trainGroup.rotation.y - gameState.mouseMovement.x
+                // We want: trainGroup.rotation.y - newMouseMovement.x = cameraWorldEuler.y
+                // So: newMouseMovement.x = trainGroup.rotation.y - cameraWorldEuler.y
+                gameState.mouseMovement.x = trainGroup.rotation.y - cameraWorldEuler.y;
+            } else if (!touchingFloor && gameState.isOnTrain && !insideTrainBounds) {
+                // Detach from train only if player is outside the train bounds
+                // This prevents detachment when jumping inside the train
+                // Get the camera's actual world rotation using Three.js
+                const cameraWorldQuaternion = new THREE.Quaternion();
+                camera.getWorldQuaternion(cameraWorldQuaternion);
+                const cameraWorldEuler = new THREE.Euler().setFromQuaternion(cameraWorldQuaternion, 'YXZ');
+
                 scene.attach(player);
                 gameState.isOnTrain = false;
+
+                // Reset player rotation to zero (it's in world space now)
+                player.rotation.set(0, 0, 0);
+
+                // Update mouseMovement to maintain the world rotation
+                gameState.mouseMovement.x = -cameraWorldEuler.y;
             } else if (gameState.isOnTrain) {
                 // Already on train, just update local position
                 player.position.copy(playerLocalPos);
@@ -826,9 +1154,14 @@
             }
 
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-            const intersects = raycaster.intersectObjects(levers, true);
 
-            if (intersects.length > 0) {
+            // Check for lever interactions
+            const leverIntersects = raycaster.intersectObjects(levers, true);
+
+            // Check for track switch interactions
+            const switchIntersects = raycaster.intersectObjects(trackSwitches, true);
+
+            if (leverIntersects.length > 0 || switchIntersects.length > 0) {
                 interactionPrompt.style.display = 'block';
             } else {
                 interactionPrompt.style.display = 'none';
