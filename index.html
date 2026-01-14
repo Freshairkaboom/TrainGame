@@ -319,6 +319,17 @@
         leftDoorFrameRight.position.set(-1.325, 1.375, 0.4);
         trainGroup.add(leftDoorFrameRight);
 
+        // Small step platform at train door (fills gap to station platform)
+        const stepPlatformGeometry = new THREE.BoxGeometry(0.3, 0.1, 1.0);
+        const stepPlatformMaterial = new THREE.MeshStandardMaterial({ color: 0xf39c12 }); // Orange like door frame
+        const stepPlatform = new THREE.Mesh(stepPlatformGeometry, stepPlatformMaterial);
+        stepPlatform.position.set(-1.4, 0.3, 0); // Left side, at platform height
+        stepPlatform.castShadow = true;
+        stepPlatform.receiveShadow = true;
+        stepPlatform.userData.isWalkable = true;
+        trainGroup.add(stepPlatform);
+        trainColliders.push(stepPlatform);
+
         // Right wall (with window opening)
         const rightWallBottom = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 4.8), wallMaterial);
         rightWallBottom.position.set(1.2, 0.6, 0);
@@ -1122,26 +1133,271 @@
             edge.rotation.y = -angle;
             scene.add(edge);
 
-            // Station Building 1 - Main building
+            // Station Building 1 - Main building (proper structure with walls, floor, roof)
             const building1Width = 6;
             const building1Height = 4;
             const building1Depth = 8;
             const building1Offset = platformOffset + platformWidth / 2 + building1Width / 2;
-
-            const building1Geometry = new THREE.BoxGeometry(building1Width, building1Height, building1Depth);
-            const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xa0522d });
-            const building1 = new THREE.Mesh(building1Geometry, buildingMaterial);
+            const wallThickness = 0.2;
 
             const building1Pos = midTransform.position.clone();
             building1Pos.add(leftDir.clone().multiplyScalar(building1Offset));
             building1Pos.y = building1Height / 2;
 
-            building1.position.copy(building1Pos);
-            building1.rotation.y = -angle;
-            building1.castShadow = true;
-            building1.receiveShadow = true;
-            scene.add(building1);
-            environmentColliders.push(building1);
+            const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xa0522d });
+
+            // Floor - ground level (exterior foundation)
+            const floorGeometry = new THREE.BoxGeometry(building1Width, 0.2, building1Depth);
+            const floor = new THREE.Mesh(floorGeometry, buildingMaterial);
+            floor.position.copy(building1Pos);
+            floor.position.y = 0.1;
+            floor.rotation.y = -angle;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Interior floor - at platform height (walkable surface inside building)
+            const interiorFloorHeight = 0.1;
+            const interiorFloorGeometry = new THREE.BoxGeometry(building1Width - wallThickness * 2, interiorFloorHeight, building1Depth - wallThickness * 2);
+            const interiorFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 }); // Brown wood color
+            const interiorFloor = new THREE.Mesh(interiorFloorGeometry, interiorFloorMaterial);
+            const interiorFloorPos = building1Pos.clone();
+            interiorFloorPos.y = platformHeight - interiorFloorHeight / 2; // Match platform top at 0.3
+            interiorFloor.position.copy(interiorFloorPos);
+            interiorFloor.rotation.y = -angle;
+            interiorFloor.receiveShadow = true;
+            interiorFloor.userData.isWalkable = true;
+            scene.add(interiorFloor);
+            environmentColliders.push(interiorFloor);
+
+            // Back wall (opposite from platform) - positioned at the back edge of floor
+            const backWallGeometry = new THREE.BoxGeometry(wallThickness, building1Height, building1Depth);
+            const backWall = new THREE.Mesh(backWallGeometry, buildingMaterial);
+            const backWallPos = building1Pos.clone();
+            backWallPos.add(leftDir.clone().multiplyScalar(building1Width / 2 + wallThickness / 2));
+            backWall.position.copy(backWallPos);
+            backWall.rotation.y = -angle;
+            backWall.castShadow = true;
+            backWall.receiveShadow = true;
+            scene.add(backWall);
+            environmentColliders.push(backWall);
+
+            // Left side wall - positioned at the left edge of floor
+            const sideWallGeometry = new THREE.BoxGeometry(building1Width, building1Height, wallThickness);
+            const leftWall = new THREE.Mesh(sideWallGeometry, buildingMaterial);
+            const leftWallPos = building1Pos.clone();
+            leftWallPos.add(midTransform.direction.clone().multiplyScalar(-building1Depth / 2 - wallThickness / 2));
+            leftWall.position.copy(leftWallPos);
+            leftWall.rotation.y = -angle;
+            leftWall.castShadow = true;
+            leftWall.receiveShadow = true;
+            scene.add(leftWall);
+            environmentColliders.push(leftWall);
+
+            // Right side wall - positioned at the right edge of floor
+            const rightWall = new THREE.Mesh(sideWallGeometry, buildingMaterial);
+            const rightWallPos = building1Pos.clone();
+            rightWallPos.add(midTransform.direction.clone().multiplyScalar(building1Depth / 2 + wallThickness / 2));
+            rightWall.position.copy(rightWallPos);
+            rightWall.rotation.y = -angle;
+            rightWall.castShadow = true;
+            rightWall.receiveShadow = true;
+            scene.add(rightWall);
+            environmentColliders.push(rightWall);
+
+            // Front wall (facing platform) - split into sections around door
+            const doorWidth = 1.5;
+            const doorHeight = 2.2;
+
+            // Front wall - left section (below and beside door)
+            const frontLeftWidth = (building1Depth - doorWidth) / 2;
+            const frontLeftGeometry = new THREE.BoxGeometry(wallThickness, building1Height, frontLeftWidth);
+            const frontLeftWall = new THREE.Mesh(frontLeftGeometry, buildingMaterial);
+            const frontLeftPos = building1Pos.clone();
+            frontLeftPos.add(leftDir.clone().multiplyScalar(-building1Width / 2));
+            frontLeftPos.add(midTransform.direction.clone().multiplyScalar(-building1Depth / 2 + frontLeftWidth / 2));
+            frontLeftWall.position.copy(frontLeftPos);
+            frontLeftWall.rotation.y = -angle;
+            frontLeftWall.castShadow = true;
+            frontLeftWall.receiveShadow = true;
+            scene.add(frontLeftWall);
+            environmentColliders.push(frontLeftWall);
+
+            // Front wall - right section
+            const frontRightWall = new THREE.Mesh(frontLeftGeometry, buildingMaterial);
+            const frontRightPos = building1Pos.clone();
+            frontRightPos.add(leftDir.clone().multiplyScalar(-building1Width / 2));
+            frontRightPos.add(midTransform.direction.clone().multiplyScalar(building1Depth / 2 - frontLeftWidth / 2));
+            frontRightWall.position.copy(frontRightPos);
+            frontRightWall.rotation.y = -angle;
+            frontRightWall.castShadow = true;
+            frontRightWall.receiveShadow = true;
+            scene.add(frontRightWall);
+            environmentColliders.push(frontRightWall);
+
+            // Front wall - top section (above door)
+            const frontTopHeight = building1Height - doorHeight;
+            const frontTopGeometry = new THREE.BoxGeometry(wallThickness, frontTopHeight, doorWidth);
+            const frontTopWall = new THREE.Mesh(frontTopGeometry, buildingMaterial);
+            const frontTopPos = building1Pos.clone();
+            frontTopPos.add(leftDir.clone().multiplyScalar(-building1Width / 2));
+            frontTopPos.y = doorHeight + frontTopHeight / 2;
+            frontTopWall.position.copy(frontTopPos);
+            frontTopWall.rotation.y = -angle;
+            frontTopWall.castShadow = true;
+            frontTopWall.receiveShadow = true;
+            scene.add(frontTopWall);
+            environmentColliders.push(frontTopWall);
+
+            // Interior wall panels (gray color for interior side)
+            const interiorWallMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 }); // Gray
+            const panelThickness = 0.02;
+
+            // Back wall interior panel (extend full depth to cover corners)
+            const backPanelGeometry = new THREE.BoxGeometry(panelThickness, building1Height, building1Depth);
+            const backPanel = new THREE.Mesh(backPanelGeometry, interiorWallMaterial);
+            const backPanelPos = building1Pos.clone();
+            backPanelPos.add(leftDir.clone().multiplyScalar(building1Width / 2 - panelThickness / 2));
+            backPanel.position.copy(backPanelPos);
+            backPanel.rotation.y = -angle;
+            backPanel.receiveShadow = true;
+            scene.add(backPanel);
+
+            // Left side wall interior panel (extend full width to cover corners)
+            const leftPanelGeometry = new THREE.BoxGeometry(building1Width, building1Height, panelThickness);
+            const leftPanel = new THREE.Mesh(leftPanelGeometry, interiorWallMaterial);
+            const leftPanelPos = building1Pos.clone();
+            leftPanelPos.add(midTransform.direction.clone().multiplyScalar(-building1Depth / 2 + wallThickness + panelThickness / 2));
+            leftPanel.position.copy(leftPanelPos);
+            leftPanel.rotation.y = -angle;
+            leftPanel.receiveShadow = true;
+            scene.add(leftPanel);
+
+            // Right side wall interior panel (extend full width to cover corners)
+            const rightPanel = new THREE.Mesh(leftPanelGeometry, interiorWallMaterial);
+            const rightPanelPos = building1Pos.clone();
+            rightPanelPos.add(midTransform.direction.clone().multiplyScalar(building1Depth / 2 - wallThickness - panelThickness / 2));
+            rightPanel.position.copy(rightPanelPos);
+            rightPanel.rotation.y = -angle;
+            rightPanel.receiveShadow = true;
+            scene.add(rightPanel);
+
+            // Front wall interior panels (around door)
+            // Left section interior
+            const frontLeftPanelGeometry = new THREE.BoxGeometry(panelThickness, building1Height, frontLeftWidth);
+            const frontLeftPanel = new THREE.Mesh(frontLeftPanelGeometry, interiorWallMaterial);
+            const frontLeftPanelPos = building1Pos.clone();
+            frontLeftPanelPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + panelThickness / 2));
+            frontLeftPanelPos.add(midTransform.direction.clone().multiplyScalar(-building1Depth / 2 + frontLeftWidth / 2));
+            frontLeftPanel.position.copy(frontLeftPanelPos);
+            frontLeftPanel.rotation.y = -angle;
+            frontLeftPanel.receiveShadow = true;
+            scene.add(frontLeftPanel);
+
+            // Right section interior
+            const frontRightPanel = new THREE.Mesh(frontLeftPanelGeometry, interiorWallMaterial);
+            const frontRightPanelPos = building1Pos.clone();
+            frontRightPanelPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + panelThickness / 2));
+            frontRightPanelPos.add(midTransform.direction.clone().multiplyScalar(building1Depth / 2 - frontLeftWidth / 2));
+            frontRightPanel.position.copy(frontRightPanelPos);
+            frontRightPanel.rotation.y = -angle;
+            frontRightPanel.receiveShadow = true;
+            scene.add(frontRightPanel);
+
+            // Top section interior (above door)
+            const frontTopPanelGeometry = new THREE.BoxGeometry(panelThickness, frontTopHeight, doorWidth);
+            const frontTopPanel = new THREE.Mesh(frontTopPanelGeometry, interiorWallMaterial);
+            const frontTopPanelPos = building1Pos.clone();
+            frontTopPanelPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + panelThickness / 2));
+            frontTopPanelPos.y = doorHeight + frontTopHeight / 2;
+            frontTopPanel.position.copy(frontTopPanelPos);
+            frontTopPanel.rotation.y = -angle;
+            frontTopPanel.receiveShadow = true;
+            scene.add(frontTopPanel);
+
+            // Door frame
+            const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
+
+            // Door frame - left post
+            const doorFrameGeometry = new THREE.BoxGeometry(0.15, doorHeight, 0.2);
+            const doorFrameLeft = new THREE.Mesh(doorFrameGeometry, doorFrameMaterial);
+            const doorFrameLeftPos = building1Pos.clone();
+            doorFrameLeftPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 - 0.05));
+            doorFrameLeftPos.add(midTransform.direction.clone().multiplyScalar(-doorWidth / 2 - 0.075));
+            doorFrameLeftPos.y = doorHeight / 2;
+            doorFrameLeft.position.copy(doorFrameLeftPos);
+            doorFrameLeft.rotation.y = -angle;
+            doorFrameLeft.castShadow = true;
+            scene.add(doorFrameLeft);
+
+            // Door frame - right post
+            const doorFrameRight = new THREE.Mesh(doorFrameGeometry, doorFrameMaterial);
+            const doorFrameRightPos = building1Pos.clone();
+            doorFrameRightPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 - 0.05));
+            doorFrameRightPos.add(midTransform.direction.clone().multiplyScalar(doorWidth / 2 + 0.075));
+            doorFrameRightPos.y = doorHeight / 2;
+            doorFrameRight.position.copy(doorFrameRightPos);
+            doorFrameRight.rotation.y = -angle;
+            doorFrameRight.castShadow = true;
+            scene.add(doorFrameRight);
+
+            // Door frame - top lintel
+            const doorLintelGeometry = new THREE.BoxGeometry(0.15, 0.2, doorWidth + 0.3);
+            const doorLintel = new THREE.Mesh(doorLintelGeometry, doorFrameMaterial);
+            const doorLintelPos = building1Pos.clone();
+            doorLintelPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 - 0.05));
+            doorLintelPos.y = doorHeight + 0.1;
+            doorLintel.position.copy(doorLintelPos);
+            doorLintel.rotation.y = -angle;
+            doorLintel.castShadow = true;
+            scene.add(doorLintel);
+
+            // Station sign above door
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            // Background
+            ctx.fillStyle = '#f5deb3'; // Tan/beige background
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Border
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+
+            // Text
+            ctx.fillStyle = '#2c1810'; // Dark brown
+            ctx.font = 'bold 80px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('STATION', canvas.width / 2, canvas.height / 2);
+
+            const signTexture = new THREE.CanvasTexture(canvas);
+            const signDepth = 0.15;
+            const signGeometry = new THREE.BoxGeometry(2, 0.5, signDepth);
+
+            // Create materials for each face - only front face has text
+            const solidMaterial = new THREE.MeshStandardMaterial({ color: 0xf5deb3 }); // Match sign background
+            const frontMaterial = new THREE.MeshStandardMaterial({ map: signTexture });
+            const signMaterials = [
+                solidMaterial, // right
+                solidMaterial, // left
+                solidMaterial, // top
+                solidMaterial, // bottom
+                frontMaterial, // front (with text)
+                solidMaterial  // back
+            ];
+
+            const sign = new THREE.Mesh(signGeometry, signMaterials);
+
+            const signPos = building1Pos.clone();
+            signPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 - signDepth / 2));
+            signPos.y = doorHeight + 0.5;
+            sign.position.copy(signPos);
+            sign.rotation.y = -angle + Math.PI / 2; // Rotate 90 degrees to face outward
+            sign.castShadow = true;
+            scene.add(sign);
 
             // Roof for building 1
             const roof1Geometry = new THREE.BoxGeometry(building1Width + 0.5, 0.5, building1Depth + 0.5);
