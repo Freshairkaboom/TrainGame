@@ -85,6 +85,7 @@
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
     <div id="npc-dialogue" style="display: none; position: absolute; background: rgba(0, 0, 0, 0.85); color: white; padding: 12px 18px; border-radius: 8px; font-size: 16px; max-width: 300px; text-align: center; pointer-events: none; z-index: 50; border: 2px solid #ffd700;"></div>
+    <div id="end-message" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 30px 40px; border-radius: 12px; font-size: 24px; text-align: center; pointer-events: none; z-index: 100; border: 3px solid #ffd700; box-shadow: 0 0 20px rgba(255, 215, 0, 0.5); opacity: 1; transition: opacity 2s ease-out;"></div>
     <div id="quest-display" style="position: absolute; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.9); color: white; padding: 15px 20px; border-radius: 8px; font-size: 14px; min-width: 250px; z-index: 50; border-left: 4px solid #ffd700;">
         <div style="font-weight: bold; color: #ffd700; margin-bottom: 8px;">QUESTS</div>
         <div id="quest-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -193,6 +194,8 @@
         let heldBox = null;
         let cargoAreaInfo = null; // Will store cargo area position info
         let destinationCargoAreaInfo = null; // Delivery destination cargo area
+        let stationBuilding1Pos = null; // Store station building 1 position
+        let stationBuilding2Pos = null; // Store station building 2 position
 
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
@@ -1017,6 +1020,55 @@
                     return false;
                 }
             }
+
+            // Check against station building 1 (main building)
+            if (stationBuilding1Pos) {
+                const building1Width = 6;
+                const building1Depth = 8;
+                const building1Clearance = 10;
+                const dxB1 = x - stationBuilding1Pos.x;
+                const dzB1 = z - stationBuilding1Pos.z;
+                const distB1 = Math.sqrt(dxB1 * dxB1 + dzB1 * dzB1);
+                if (distB1 < (Math.max(building1Width, building1Depth) / 2 + building1Clearance)) {
+                    return false;
+                }
+            }
+
+            // Check against station building 2 (smaller building)
+            if (stationBuilding2Pos) {
+                const building2Width = 4;
+                const building2Depth = 5;
+                const building2Clearance = 8;
+                const dxB2 = x - stationBuilding2Pos.x;
+                const dzB2 = z - stationBuilding2Pos.z;
+                const distB2 = Math.sqrt(dxB2 * dxB2 + dzB2 * dzB2);
+                if (distB2 < (Math.max(building2Width, building2Depth) / 2 + building2Clearance)) {
+                    return false;
+                }
+            }
+
+            // Check against cargo area (station)
+            if (cargoAreaInfo) {
+                const cargoClearance = 8;
+                const dxCargo = x - cargoAreaInfo.position.x;
+                const dzCargo = z - cargoAreaInfo.position.z;
+                const distCargo = Math.sqrt(dxCargo * dxCargo + dzCargo * dzCargo);
+                if (distCargo < (Math.max(cargoAreaInfo.width, cargoAreaInfo.length) / 2 + cargoClearance)) {
+                    return false;
+                }
+            }
+
+            // Check against destination cargo area
+            if (destinationCargoAreaInfo) {
+                const destCargoClearance = 8;
+                const dxDestCargo = x - destinationCargoAreaInfo.position.x;
+                const dzDestCargo = z - destinationCargoAreaInfo.position.z;
+                const distDestCargo = Math.sqrt(dxDestCargo * dxDestCargo + dzDestCargo * dzDestCargo);
+                if (distDestCargo < (Math.max(destinationCargoAreaInfo.width, destinationCargoAreaInfo.length) / 2 + destCargoClearance)) {
+                    return false;
+                }
+            }
+
             return true;
         }
 
@@ -1433,6 +1485,9 @@
             const building1Pos = midTransform.position.clone();
             building1Pos.add(leftDir.clone().multiplyScalar(building1Offset));
             building1Pos.y = building1Height / 2;
+
+            // Store for tree spawning collision check
+            stationBuilding1Pos = building1Pos.clone();
 
             const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xa0522d });
 
@@ -2016,6 +2071,9 @@
             building2Pos.add(midTransform.direction.clone().multiplyScalar(building2OffsetLongitudinal));
             building2Pos.y = building2Height / 2;
 
+            // Store for tree spawning collision check
+            stationBuilding2Pos = building2Pos.clone();
+
             building2.position.copy(building2Pos);
             building2.rotation.y = -angle;
             building2.castShadow = true;
@@ -2542,16 +2600,6 @@
                 }
                 questListElement.appendChild(questItem);
             });
-
-            // Check if both quests are completed (even if deleted from map)
-            const greetCompleted = !activeQuests.has('greet') || activeQuests.get('greet').completed;
-            const cartCompleted = !activeQuests.has('cart') || activeQuests.get('cart').completed;
-            if (greetCompleted && cartCompleted && !bothQuestsEverCompleted) {
-                bothQuestsEverCompleted = true;
-                setTimeout(() => {
-                    spawnCargoBoxes();
-                }, 3500); // Spawn after quests are removed
-            }
         }
 
         function spawnCargoBoxes() {
@@ -2588,9 +2636,6 @@
                 scene.add(box);
                 cargoBoxes.push(boxData);
             }
-
-            // Add cargo loading quest
-            addQuest('cargo', 'Load the cargo into the train cart');
         }
 
         function pickupBox(box) {
@@ -3021,6 +3066,12 @@
                                 // Complete quest if active
                                 if (activeQuests.has('cart') && !activeQuests.get('cart').completed) {
                                     completeQuest('cart');
+
+                                    // Spawn cargo boxes and add cargo quest after cart is attached
+                                    setTimeout(() => {
+                                        spawnCargoBoxes();
+                                        addQuest('cargo', 'Load the cargo into the train cart');
+                                    }, 3500); // Spawn after cart quest is removed
                                 }
                             }
                         }
@@ -3117,25 +3168,50 @@
                     gameState.trainVelocity = 0;
                 }
             } else {
-                const targetSpeed = gameState.levers.forward ? gameState.trainMaxSpeed :
-                                   gameState.levers.reverse ? -gameState.trainMaxSpeed : 0;
+                // Check if cart is close but not attached - prevent moving toward cart
+                let canMoveBackward = true;
+                if (!gameState.cartAttached && cartGroup) {
+                    const trainConnectorPos = new THREE.Vector3(0, 0.6, 4.3);
+                    trainGroup.localToWorld(trainConnectorPos);
+                    const cartCouplerPos = new THREE.Vector3(0, 0.6, -2.3);
+                    cartGroup.localToWorld(cartCouplerPos);
+                    const connectorDistance = trainConnectorPos.distanceTo(cartCouplerPos);
+                    if (connectorDistance < 3.0) {
+                        canMoveBackward = false;
+                    }
+                }
 
-                if (gameState.levers.brake) {
+                // If train is moving forward (positive velocity) while cart is too close, force stop
+                if (!canMoveBackward && gameState.trainVelocity > 0) {
                     if (Math.abs(gameState.trainVelocity) > 0.01) {
-                        const brakeDirection = gameState.trainVelocity > 0 ? -1 : 1;
-                        gameState.trainVelocity += brakeDirection * gameState.brakeDeceleration;
+                        gameState.trainVelocity -= gameState.autoStopDeceleration;
+                        if (gameState.trainVelocity < 0) {
+                            gameState.trainVelocity = 0;
+                        }
                     } else {
                         gameState.trainVelocity = 0;
-                    }
-                } else if (targetSpeed !== 0) {
-                    if (Math.abs(gameState.trainVelocity - targetSpeed) > 0.1) {
-                        gameState.trainVelocity += Math.sign(targetSpeed - gameState.trainVelocity) * gameState.trainAcceleration;
                     }
                 } else {
-                    if (Math.abs(gameState.trainVelocity) > 0.01) {
-                        gameState.trainVelocity -= Math.sign(gameState.trainVelocity) * gameState.trainDeceleration;
+                    const targetSpeed = (gameState.levers.forward && canMoveBackward) ? gameState.trainMaxSpeed :
+                                       gameState.levers.reverse ? -gameState.trainMaxSpeed : 0;
+
+                    if (gameState.levers.brake) {
+                        if (Math.abs(gameState.trainVelocity) > 0.01) {
+                            const brakeDirection = gameState.trainVelocity > 0 ? -1 : 1;
+                            gameState.trainVelocity += brakeDirection * gameState.brakeDeceleration;
+                        } else {
+                            gameState.trainVelocity = 0;
+                        }
+                    } else if (targetSpeed !== 0) {
+                        if (Math.abs(gameState.trainVelocity - targetSpeed) > 0.1) {
+                            gameState.trainVelocity += Math.sign(targetSpeed - gameState.trainVelocity) * gameState.trainAcceleration;
+                        }
                     } else {
-                        gameState.trainVelocity = 0;
+                        if (Math.abs(gameState.trainVelocity) > 0.01) {
+                            gameState.trainVelocity -= Math.sign(gameState.trainVelocity) * gameState.trainDeceleration;
+                        } else {
+                            gameState.trainVelocity = 0;
+                        }
                     }
                 }
             }
@@ -3232,30 +3308,37 @@
 
             // Move cart when grabbed
             if (gameState.cartGrabbed && !gameState.cartAttached) {
-                const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
-                const couplerWorldPos = new THREE.Vector3(0, 0.6, -2.3);
-                cartGroup.localToWorld(couplerWorldPos);
+                // Check if cart connector is very close to train connector
+                const trainConnectorPos = new THREE.Vector3(0, 0.6, 4.3);
+                trainGroup.localToWorld(trainConnectorPos);
+                const cartCouplerPos = new THREE.Vector3(0, 0.6, -2.3);
+                cartGroup.localToWorld(cartCouplerPos);
+                const connectorDistance = trainConnectorPos.distanceTo(cartCouplerPos);
 
-                const playerToCoupler = couplerWorldPos.clone().sub(playerWorldPos);
-                const distance = playerToCoupler.length();
+                // Don't allow pulling if connectors are very close (about to attach)
+                if (connectorDistance > 0.5) {
+                    const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
+                    const playerToCoupler = cartCouplerPos.clone().sub(playerWorldPos);
+                    const distance = playerToCoupler.length();
 
-                // Define distance zones
-                const minDistance = 1.5;  // Too close - push cart away
-                const maxDistance = 3.0;  // Too far - pull cart closer
-                const releaseDistance = 5.0; // Release if too far
+                    // Define distance zones
+                    const minDistance = 1.5;  // Too close - push cart away
+                    const maxDistance = 3.0;  // Too far - pull cart closer
+                    const releaseDistance = 5.0; // Release if too far
 
-                if (distance > releaseDistance) {
-                    // Player too far, release grab
-                    gameState.cartGrabbed = false;
-                    console.log('Released cart - too far away!');
-                } else if (distance > maxDistance) {
-                    // Player is far - move cart forward (toward player)
-                    gameState.cartTrackDistance += delta * 3.0;
-                } else if (distance < minDistance) {
-                    // Player is too close - move cart backward (away from player)
-                    gameState.cartTrackDistance -= delta * 3.0;
+                    if (distance > releaseDistance) {
+                        // Player too far, release grab
+                        gameState.cartGrabbed = false;
+                        console.log('Released cart - too far away!');
+                    } else if (distance > maxDistance) {
+                        // Player is far - move cart forward (toward player)
+                        gameState.cartTrackDistance += delta * 3.0;
+                    } else if (distance < minDistance) {
+                        // Player is too close - move cart backward (away from player)
+                        gameState.cartTrackDistance -= delta * 3.0;
+                    }
+                    // else: player is in deadzone (minDistance to maxDistance) - don't move cart
                 }
-                // else: player is in deadzone (minDistance to maxDistance) - don't move cart
 
                 // Clamp cart distance to valid track range
                 gameState.cartTrackDistance = Math.max(0, gameState.cartTrackDistance);
@@ -3284,18 +3367,29 @@
                     // Check if all boxes are on the destination cargo area
                     const allBoxesOnDestination = cargoBoxes.every(boxData => boxData.onPlatform === 'destination');
 
-                    // Debug: Log box platform status
-                    console.log('Box platforms:', cargoBoxes.map(b => b.onPlatform));
-                    console.log('All on destination?', allBoxesOnDestination);
-
                     if (allBoxesOnDestination) {
                         completeQuest('delivery');
-                        // Remove all boxes from the scene
-                        cargoBoxes.forEach(boxData => {
-                            scene.remove(boxData.mesh);
-                        });
                         cargoBoxes.length = 0; // Clear the array
                         heldBox = null;
+
+                        // Show "Thank you for playing" message after 5 seconds
+                        setTimeout(() => {
+                            const endMessage = document.getElementById('end-message');
+                            if (endMessage) {
+                                endMessage.textContent = 'Thank you for playing this demo.';
+                                endMessage.style.display = 'block';
+                                endMessage.style.opacity = '1';
+
+                                // Fade out after 10 seconds
+                                setTimeout(() => {
+                                    endMessage.style.opacity = '0';
+                                    // Remove from display after fade completes
+                                    setTimeout(() => {
+                                        endMessage.style.display = 'none';
+                                    }, 2000); // Match transition duration
+                                }, 10000);
+                            }
+                        }, 5000);
                     }
                 }
             }
@@ -3355,6 +3449,7 @@
 
             // Collision detection with train - always work in train's local space
             let touchingFloor = false;
+            let touchingCartFloor = false;
 
             // Get player position in train's local space
             const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
@@ -3395,10 +3490,10 @@
                 }
             }
 
-            // Collision detection with cart (when attached)
-            if (gameState.cartAttached) {
+            // Collision detection with cart (always check, whether attached or not)
+            let cartCollisionDetected = false;
+            if (cartGroup) {
                 const playerLocalPosCart = cartGroup.worldToLocal(playerWorldPos.clone());
-                let cartCollisionDetected = false;
 
                 for (const collider of cartColliders) {
                     const colliderPos = collider.position.clone();
@@ -3426,7 +3521,7 @@
                             if (diff.y > 0) {
                                 gameState.canJump = true;
                                 if (collider === cartFloor) {
-                                    touchingFloor = true;
+                                    touchingCartFloor = true;
                                 }
                             }
                         } else {
@@ -3436,10 +3531,17 @@
                     }
                 }
 
-                // Apply cart collision corrections by converting back to train space
+                // Apply cart collision corrections
                 if (cartCollisionDetected) {
-                    const cartPosInWorld = cartGroup.localToWorld(playerLocalPosCart.clone());
-                    playerLocalPos.copy(trainGroup.worldToLocal(cartPosInWorld));
+                    if (gameState.cartAttached) {
+                        // When attached, convert cart position back to train space
+                        const cartPosInWorld = cartGroup.localToWorld(playerLocalPosCart.clone());
+                        playerLocalPos.copy(trainGroup.worldToLocal(cartPosInWorld));
+                    } else {
+                        // When detached, update player world position directly
+                        const cartPosInWorld = cartGroup.localToWorld(playerLocalPosCart.clone());
+                        player.position.copy(cartPosInWorld);
+                    }
                 }
             }
 
@@ -3457,7 +3559,7 @@
             }
 
             // Handle parenting and position updates correctly
-            if (touchingFloor && !gameState.isOnTrain) {
+            if (touchingFloor && !gameState.isOnTrain && !touchingCartFloor) {
                 // Attach to train and update position in train's local space
                 // Get the camera's current world rotation before attaching
                 const cameraWorldQuaternion = new THREE.Quaternion();
@@ -3501,11 +3603,12 @@
             } else if (gameState.isOnTrain) {
                 // Already on train, just update local position
                 player.position.copy(playerLocalPos);
-            } else {
-                // Not on train, convert corrected position back to world space
+            } else if (!cartCollisionDetected) {
+                // Not on train and no cart collision, convert corrected position back to world space
                 const correctedWorldPos = trainGroup.localToWorld(playerLocalPos);
                 player.position.copy(correctedWorldPos);
             }
+            // If cart collision occurred when detached, position was already updated in cart collision handling
 
             // Ground collision
             const playerWorldPos2 = player.getWorldPosition(new THREE.Vector3());
@@ -4008,7 +4111,6 @@
 
             renderer.render(scene, camera);
         }
-
 
         animate();
 
