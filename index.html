@@ -153,6 +153,9 @@
         // ===== GROUND ===== (will be created after tracks are built)
         let ground = null;
 
+        // ===== NPC =====
+        let npcGroup = null;
+
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
         trainGroup.position.set(0, 0, 0);
@@ -1409,6 +1412,171 @@
             roof1.castShadow = true;
             scene.add(roof1);
 
+            // Reception desk - L-shaped, starting from right of door
+            const deskMaterial = new THREE.MeshStandardMaterial({ color: 0x3e2723 }); // Dark brown
+            const deskWallThickness = 0.2;
+            const deskTopThickness = 0.1; // Thin counter top
+            const deskHeight = 0.6; // Adjusted height
+
+            // First segment: runs from door towards back wall (into center of room)
+            const segment1Length = 3.0; // Extends towards back wall
+
+            // Wall panel - segment 1
+            const deskWall1Geometry = new THREE.BoxGeometry(segment1Length, deskHeight, deskWallThickness);
+            const deskWall1 = new THREE.Mesh(deskWall1Geometry, deskMaterial);
+            const deskWall1Pos = building1Pos.clone();
+            // Start right at edge of door, no offset from front wall
+            deskWall1Pos.add(midTransform.direction.clone().multiplyScalar(doorWidth / 2 + deskWallThickness / 2));
+            // Extend towards back wall
+            deskWall1Pos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + segment1Length / 2 + 0.1));
+            deskWall1Pos.y = platformHeight + deskHeight / 2;
+            deskWall1.position.copy(deskWall1Pos);
+            deskWall1.rotation.y = -angle;
+            deskWall1.castShadow = true;
+            deskWall1.receiveShadow = true;
+            scene.add(deskWall1);
+            environmentColliders.push(deskWall1);
+
+            // Counter top - segment 1 (sits on top of wall)
+            const deskTop1Geometry = new THREE.BoxGeometry(segment1Length, deskTopThickness, deskWallThickness + 0.2);
+            const deskTop1 = new THREE.Mesh(deskTop1Geometry, deskMaterial);
+            const deskTop1Pos = deskWall1Pos.clone();
+            deskTop1Pos.y = platformHeight + deskHeight + deskTopThickness / 2;
+            deskTop1.position.copy(deskTop1Pos);
+            deskTop1.rotation.y = -angle;
+            deskTop1.castShadow = true;
+            deskTop1.receiveShadow = true;
+            scene.add(deskTop1);
+
+            // Second segment: runs from end of segment 1 towards right wall
+            const segment2Length = building1Depth / 2 - wallThickness - (doorWidth / 2 + deskWallThickness / 2) - 0.3;
+
+            // Wall panel - segment 2
+            const deskWall2Geometry = new THREE.BoxGeometry(deskWallThickness, deskHeight, segment2Length);
+            const deskWall2 = new THREE.Mesh(deskWall2Geometry, deskMaterial);
+            const deskWall2Pos = building1Pos.clone();
+            // At the end of segment 1
+            deskWall2Pos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + segment1Length + 0.1));
+            // Extend towards right wall
+            deskWall2Pos.add(midTransform.direction.clone().multiplyScalar(doorWidth / 2 + deskWallThickness / 2 + segment2Length / 2));
+            deskWall2Pos.y = platformHeight + deskHeight / 2;
+            deskWall2.position.copy(deskWall2Pos);
+            deskWall2.rotation.y = -angle;
+            deskWall2.castShadow = true;
+            deskWall2.receiveShadow = true;
+            scene.add(deskWall2);
+            environmentColliders.push(deskWall2);
+
+            // Counter top - segment 2 (sits on top of wall)
+            const deskTop2Geometry = new THREE.BoxGeometry(deskWallThickness + 0.2, deskTopThickness, segment2Length);
+            const deskTop2 = new THREE.Mesh(deskTop2Geometry, deskMaterial);
+            const deskTop2Pos = deskWall2Pos.clone();
+            deskTop2Pos.y = platformHeight + deskHeight + deskTopThickness / 2;
+            deskTop2.position.copy(deskTop2Pos);
+            deskTop2.rotation.y = -angle;
+            deskTop2.castShadow = true;
+            deskTop2.receiveShadow = true;
+            scene.add(deskTop2);
+
+            // NPC behind reception desk
+            npcGroup = new THREE.Group();
+
+            // NPC position - in the corner behind the desk
+            const npcPos = building1Pos.clone();
+            npcPos.add(leftDir.clone().multiplyScalar(-building1Width / 2 + wallThickness + 1.0)); // Near back wall
+            npcPos.add(midTransform.direction.clone().multiplyScalar(doorWidth / 2 + 1.0)); // Towards right wall
+            npcPos.y = platformHeight;
+
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(0.4, 0.6, 0.25);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue shirt
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.6;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            npcGroup.add(body);
+
+            // Head (round)
+            const headGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac }); // Skin tone
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.05;
+            head.castShadow = true;
+            head.receiveShadow = true;
+            npcGroup.add(head);
+
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.025, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 }); // Black eyes
+
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.05, 1.08, 0.13);
+            npcGroup.add(leftEye);
+
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.05, 1.08, 0.13);
+            npcGroup.add(rightEye);
+
+            // Mouth (simple smile)
+            const mouthGeometry = new THREE.BoxGeometry(0.08, 0.015, 0.01);
+            const mouthMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 }); // Brown
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, 0.98, 0.14);
+            npcGroup.add(mouth);
+
+            // Hat
+            const hatBrimGeometry = new THREE.CylinderGeometry(0.22, 0.22, 0.03, 16);
+            const hatMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 }); // Brown hat
+            const hatBrim = new THREE.Mesh(hatBrimGeometry, hatMaterial);
+            hatBrim.position.y = 1.18;
+            hatBrim.castShadow = true;
+            hatBrim.receiveShadow = true;
+            npcGroup.add(hatBrim);
+
+            const hatTopGeometry = new THREE.CylinderGeometry(0.13, 0.13, 0.15, 16);
+            const hatTop = new THREE.Mesh(hatTopGeometry, hatMaterial);
+            hatTop.position.y = 1.27;
+            hatTop.castShadow = true;
+            hatTop.receiveShadow = true;
+            npcGroup.add(hatTop);
+
+            // Arms
+            const armGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue shirt
+
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.275, 0.55, 0);
+            leftArm.castShadow = true;
+            leftArm.receiveShadow = true;
+            npcGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.275, 0.55, 0);
+            rightArm.castShadow = true;
+            rightArm.receiveShadow = true;
+            npcGroup.add(rightArm);
+
+            // Legs
+            const legGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x2c3e50 }); // Dark pants
+
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(-0.1, 0.25, 0);
+            leftLeg.castShadow = true;
+            leftLeg.receiveShadow = true;
+            npcGroup.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(0.1, 0.25, 0);
+            rightLeg.castShadow = true;
+            rightLeg.receiveShadow = true;
+            npcGroup.add(rightLeg);
+
+            // Position and rotate the NPC group
+            npcGroup.position.copy(npcPos);
+            npcGroup.rotation.y = -angle;
+            scene.add(npcGroup);
+
             // Station Building 2 - Smaller building
             const building2Width = 4;
             const building2Height = 3;
@@ -2617,6 +2785,33 @@
             if (!gameState.isPaused) {
                 updateTrain(delta);
                 updatePlayer(delta);
+
+                // Update NPC rotation to face player
+                if (npcGroup) {
+                    const npcWorldPos = new THREE.Vector3();
+                    npcGroup.getWorldPosition(npcWorldPos);
+
+                    const playerWorldPos = new THREE.Vector3();
+                    player.getWorldPosition(playerWorldPos);
+
+                    // Calculate angle to player
+                    const dx = playerWorldPos.x - npcWorldPos.x;
+                    const dz = playerWorldPos.z - npcWorldPos.z;
+                    const targetAngle = Math.atan2(dx, dz);
+
+                    // Smoothly interpolate rotation
+                    const rotationSpeed = 2.0; // Radians per second
+                    let currentAngle = npcGroup.rotation.y;
+                    let angleDiff = targetAngle - currentAngle;
+
+                    // Normalize angle difference to [-PI, PI]
+                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+                    // Apply smooth rotation
+                    const rotationStep = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), rotationSpeed * delta);
+                    npcGroup.rotation.y += rotationStep;
+                }
             }
 
             renderer.render(scene, camera);
