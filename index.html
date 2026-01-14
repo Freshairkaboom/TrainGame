@@ -111,7 +111,7 @@
                 brake: false
             },
             cartAttached: false,
-            cartTrackDistance: 0  // Start at beginning of track
+            cartTrackDistance: 3  // Start 3 units from beginning (past the barrier)
         };
 
         // ===== SCENE SETUP =====
@@ -679,7 +679,13 @@
         // Render all track routes
         for (const [routeName, route] of Object.entries(trackRoutes)) {
             if (route) {
-                route.forEach(piece => renderTrackPiece(piece));
+                route.forEach((piece, index) => {
+                    renderTrackPiece(piece);
+                    // Add start barrier to the very first piece of the main route
+                    if (routeName === 'main' && index === 0) {
+                        createStartBarrier(piece);
+                    }
+                });
             }
         }
 
@@ -1031,6 +1037,38 @@
 
             const stripe2 = new THREE.Mesh(stripeGeometry, stripeMaterial);
             stripe2.position.copy(endTransform.position);
+            stripe2.position.y = 0.7;
+            stripe2.rotation.y = -angle;
+            scene.add(stripe2);
+        }
+
+        function createStartBarrier(piece) {
+            const startTransform = piece.getTransformAt(0);
+            const angle = Math.atan2(startTransform.direction.x, -startTransform.direction.z);
+
+            // Red barrier bumper at start
+            const barrierGeometry = new THREE.BoxGeometry(3.5, 1.0, 0.3);
+            const barrierMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            const barrier = new THREE.Mesh(barrierGeometry, barrierMaterial);
+            barrier.position.copy(startTransform.position);
+            barrier.position.y = 0.5;
+            barrier.rotation.y = -angle;
+            barrier.castShadow = true;
+            barrier.receiveShadow = true;
+            scene.add(barrier);
+
+            // Yellow/black striped warning stripes
+            const stripeGeometry = new THREE.BoxGeometry(3.5, 0.2, 0.35);
+            const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+
+            const stripe1 = new THREE.Mesh(stripeGeometry, stripeMaterial);
+            stripe1.position.copy(startTransform.position);
+            stripe1.position.y = 0.3;
+            stripe1.rotation.y = -angle;
+            scene.add(stripe1);
+
+            const stripe2 = new THREE.Mesh(stripeGeometry, stripeMaterial);
+            stripe2.position.copy(startTransform.position);
             stripe2.position.y = 0.7;
             stripe2.rotation.y = -angle;
             scene.add(stripe2);
@@ -1832,6 +1870,25 @@
                         gameState.trainVelocity = 0;
                         gameState.levers.forward = false;
                         updateLeverVisuals(yellowLever);
+                    }
+                }
+            }
+
+            // Prevent reverse movement past the start barrier on main route
+            if (currentTrackRoute === 'main' && trainTrackDistance < 15) {
+                // On the first piece of the main route (within first 15 units)
+
+                // Only apply barrier logic when moving backward (positive velocity)
+                if (gameState.trainVelocity > 0) {
+                    // Moving backward - apply barrier deceleration
+                    const barrierDeceleration = 0.4;
+                    gameState.trainVelocity -= barrierDeceleration;
+
+                    // If very close to start barrier (within 3 units), stop completely
+                    if (trainTrackDistance < 3) {
+                        gameState.trainVelocity = 0;
+                        gameState.levers.reverse = false;
+                        updateLeverVisuals(greenLever);
                     }
                 }
             }
