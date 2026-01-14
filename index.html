@@ -85,6 +85,10 @@
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
     <div id="npc-dialogue" style="display: none; position: absolute; background: rgba(0, 0, 0, 0.85); color: white; padding: 12px 18px; border-radius: 8px; font-size: 16px; max-width: 300px; text-align: center; pointer-events: none; z-index: 50; border: 2px solid #ffd700;"></div>
+    <div id="quest-display" style="display: none; position: absolute; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.9); color: white; padding: 15px 20px; border-radius: 8px; font-size: 14px; min-width: 250px; z-index: 50; border-left: 4px solid #ffd700;">
+        <div style="font-weight: bold; color: #ffd700; margin-bottom: 8px;">QUEST</div>
+        <div id="quest-text"></div>
+    </div>
     <div id="version">v1.10</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -112,7 +116,8 @@
                 brake: false
             },
             cartAttached: false,
-            cartTrackDistance: 3  // Start 3 units from beginning (past the barrier)
+            cartTrackDistance: 3,  // Start 3 units from beginning (past the barrier)
+            cartGrabbed: false
         };
 
         // ===== SCENE SETUP =====
@@ -170,11 +175,20 @@
         let npcWaveTime = 0;
         let npcIsWaving = false;
         let npcDialogueElement = null;
-        let npcDialogueText = "Welcome to the station! Hop aboard the train when you're ready.";
+        let npcDialogueText = "Welcome to the station! I sometimes get cargo here for you to deliver. Check the cargo area on the platform and load it onto the train when you're ready. Safe travels!";
         let npcDialogueProgress = 0;
         let npcDialogueCharIndex = 0;
         let npcShowingDialogue = false;
         let npcDialogueCompleteTime = 0;
+
+        // Quest system
+        let questActive = false;
+        let questCompleted = false;
+        let questElement = null;
+        let questTextElement = null;
+        let hasEverBoardedTrain = false;
+        let greetQuestCompleted = false;
+        let cartQuestCompleted = false;
 
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
@@ -296,6 +310,16 @@
         const backRailing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 0.1), railingMaterial);
         backRailing.position.set(0, 0.7, 4.0);
         backRailing.castShadow = true;
+
+        // Train connection point (for cart attachment)
+        const trainConnectorGroup = new THREE.Group();
+        const trainConnectorMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        const trainConnector = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 8), trainConnectorMaterial);
+        trainConnector.rotation.z = Math.PI / 2;
+        trainConnectorGroup.add(trainConnector);
+        trainConnectorGroup.position.set(0, 0.6, 4.3);
+        trainConnectorGroup.userData = { isTrainConnector: true };
+        trainGroup.add(trainConnectorGroup);
         trainGroup.add(backRailing);
         trainColliders.push(backRailing);
 
@@ -1149,7 +1173,7 @@
 
             // Platform edge/safety strip
             const edgeGeometry = new THREE.BoxGeometry(platformWidth, 0.05, platformLength);
-            const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
             const edge = new THREE.Mesh(edgeGeometry, edgeMaterial);
             edge.position.copy(platformPos);
             edge.position.y = platformHeight + 0.025;
@@ -2224,6 +2248,15 @@
         raycaster.far = 3;
         const interactionPrompt = document.getElementById('interaction-prompt');
 
+        // Get quest DOM elements
+        questElement = document.getElementById('quest-display');
+        questTextElement = document.getElementById('quest-text');
+
+        // Show initial greeting quest
+        questActive = true;
+        questTextElement.textContent = 'Say hello to the train station manager';
+        questElement.style.display = 'block';
+
         // ===== INPUT HANDLING =====
         const instructionsEl = document.getElementById('instructions');
         const pauseOverlay = document.getElementById('pause-overlay');
@@ -2286,6 +2319,18 @@
                         hornObj.position.y -= 0.1;
                     }
                 }
+
+                // Check for NPC interaction
+                if (npcGroup) {
+                    const npcIntersects = raycaster.intersectObjects(npcGroup.children, true);
+                    if (npcIntersects.length > 0 && npcIntersects[0].distance < 3) {
+                        // Trigger dialogue
+                        npcShowingDialogue = true;
+                        npcDialogueCharIndex = 0;
+                        npcDialogueProgress = 0;
+                        npcDialogueCompleteTime = 0;
+                    }
+                }
             }
         });
 
@@ -2336,18 +2381,60 @@
                     }
                 }
 
-                // Check for coupler interaction (detach cart)
-                if (gameState.cartAttached) {
-                    const couplerIntersects = raycaster.intersectObjects(cartGroup.children, true);
-                    if (couplerIntersects.length > 0) {
-                        let couplerObj = couplerIntersects[0].object;
-                        while (couplerObj.parent && !couplerObj.userData.isCoupler) {
-                            couplerObj = couplerObj.parent;
-                        }
+                // Check for train connector interaction (attach cart)
+                const trainConnectorIntersects = raycaster.intersectObjects(trainGroup.children, true);
+                if (trainConnectorIntersects.length > 0) {
+                    let connectorObj = trainConnectorIntersects[0].object;
+                    while (connectorObj.parent && !connectorObj.userData.isTrainConnector) {
+                        connectorObj = connectorObj.parent;
+                    }
 
-                        if (couplerObj.userData.isCoupler) {
+                    if (connectorObj.userData.isTrainConnector && trainConnectorIntersects[0].distance < 3) {
+                        // Check if cart is grabbed and close enough to attach
+                        if (gameState.cartGrabbed && !gameState.cartAttached) {
+                            const trainConnectorPos = new THREE.Vector3(0, 0.6, 4.3);
+                            trainGroup.localToWorld(trainConnectorPos);
+
+                            const cartCouplerPos = new THREE.Vector3(0, 0.6, -2.3);
+                            cartGroup.localToWorld(cartCouplerPos);
+
+                            const connectorDistance = trainConnectorPos.distanceTo(cartCouplerPos);
+                            if (connectorDistance < 0.8) {
+                                // Attach to train
+                                gameState.cartAttached = true;
+                                gameState.cartGrabbed = false;
+                                console.log('Cart attached!');
+
+                                // Complete quest if active
+                                if (questActive && !cartQuestCompleted) {
+                                    cartQuestCompleted = true;
+                                    questTextElement.innerHTML = '<span style="color: #4ade80;">✓ Attach the train cart to the train</span>';
+                                    setTimeout(() => {
+                                        questElement.style.display = 'none';
+                                    }, 3000);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check for coupler interaction (grab/release or detach)
+                const couplerIntersects = raycaster.intersectObjects(cartGroup.children, true);
+                if (couplerIntersects.length > 0) {
+                    let couplerObj = couplerIntersects[0].object;
+                    while (couplerObj.parent && !couplerObj.userData.isCoupler) {
+                        couplerObj = couplerObj.parent;
+                    }
+
+                    if (couplerObj.userData.isCoupler && couplerIntersects[0].distance < 3) {
+                        if (gameState.cartAttached) {
+                            // Detach cart
                             gameState.cartAttached = false;
                             console.log('Cart detached!');
+                        } else {
+                            // Toggle grab/release
+                            gameState.cartGrabbed = !gameState.cartGrabbed;
+                            console.log(gameState.cartGrabbed ? 'Grabbed cart!' : 'Released cart!');
                         }
                     }
                 }
@@ -2517,15 +2604,35 @@
                 cartTrackRoute = cartTransform.routeName;
             }
 
-            // Check for player collision with cart to attach it
-            if (!gameState.cartAttached) {
+            // Move cart when grabbed
+            if (gameState.cartGrabbed && !gameState.cartAttached) {
                 const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
-                const distanceToCart = playerWorldPos.distanceTo(cartGroup.position);
+                const couplerWorldPos = new THREE.Vector3(0, 0.6, -2.3);
+                cartGroup.localToWorld(couplerWorldPos);
 
-                if (distanceToCart < 3) {
-                    gameState.cartAttached = true;
-                    console.log('Cart attached!');
+                const playerToCoupler = couplerWorldPos.clone().sub(playerWorldPos);
+                const distance = playerToCoupler.length();
+
+                // Define distance zones
+                const minDistance = 1.5;  // Too close - push cart away
+                const maxDistance = 3.0;  // Too far - pull cart closer
+                const releaseDistance = 5.0; // Release if too far
+
+                if (distance > releaseDistance) {
+                    // Player too far, release grab
+                    gameState.cartGrabbed = false;
+                    console.log('Released cart - too far away!');
+                } else if (distance > maxDistance) {
+                    // Player is far - move cart forward (toward player)
+                    gameState.cartTrackDistance += delta * 3.0;
+                } else if (distance < minDistance) {
+                    // Player is too close - move cart backward (away from player)
+                    gameState.cartTrackDistance -= delta * 3.0;
                 }
+                // else: player is in deadzone (minDistance to maxDistance) - don't move cart
+
+                // Clamp cart distance to valid track range
+                gameState.cartTrackDistance = Math.max(0, gameState.cartTrackDistance);
             }
         }
 
@@ -2697,6 +2804,14 @@
                 trainGroup.attach(player);
                 gameState.isOnTrain = true;
                 player.position.copy(playerLocalPos);
+
+                // Trigger quest on first boarding
+                if (!hasEverBoardedTrain && greetQuestCompleted) {
+                    hasEverBoardedTrain = true;
+                    questActive = true;
+                    questTextElement.textContent = 'Attach the train cart to the train';
+                    questElement.style.display = 'block';
+                }
 
                 // Reset player rotation to zero in the train's local space
                 player.rotation.set(0, 0, 0);
@@ -2919,8 +3034,73 @@
             // Check for track switch interactions
             const switchIntersects = raycaster.intersectObjects(trackSwitches, true);
 
+            // Check for NPC interaction
+            let showNpcPrompt = false;
+            if (npcGroup) {
+                const npcIntersects = raycaster.intersectObjects(npcGroup.children, true);
+                if (npcIntersects.length > 0 && npcIntersects[0].distance < 3) {
+                    showNpcPrompt = true;
+                }
+            }
+
+            // Check for coupler interaction
+            let showCouplerPrompt = false;
+            const couplerIntersects = raycaster.intersectObjects(cartGroup.children, true);
+            if (couplerIntersects.length > 0) {
+                let couplerObj = couplerIntersects[0].object;
+                while (couplerObj.parent && !couplerObj.userData.isCoupler) {
+                    couplerObj = couplerObj.parent;
+                }
+                if (couplerObj.userData.isCoupler && couplerIntersects[0].distance < 3) {
+                    showCouplerPrompt = true;
+                }
+            }
+
+            // Check for train connector interaction
+            let showTrainConnectorPrompt = false;
+            let canAttachToTrain = false;
+            const trainConnectorIntersects = raycaster.intersectObjects(trainGroup.children, true);
+            if (trainConnectorIntersects.length > 0) {
+                let connectorObj = trainConnectorIntersects[0].object;
+                while (connectorObj.parent && !connectorObj.userData.isTrainConnector) {
+                    connectorObj = connectorObj.parent;
+                }
+                if (connectorObj.userData.isTrainConnector && trainConnectorIntersects[0].distance < 3) {
+                    showTrainConnectorPrompt = true;
+
+                    // Check if cart is grabbed and close enough to attach
+                    if (gameState.cartGrabbed && !gameState.cartAttached) {
+                        const trainConnectorPos = new THREE.Vector3(0, 0.6, 4.3);
+                        trainGroup.localToWorld(trainConnectorPos);
+
+                        const cartCouplerPos = new THREE.Vector3(0, 0.6, -2.3);
+                        cartGroup.localToWorld(cartCouplerPos);
+
+                        const connectorDistance = trainConnectorPos.distanceTo(cartCouplerPos);
+                        if (connectorDistance < 0.8) {
+                            canAttachToTrain = true;
+                        }
+                    }
+                }
+            }
+
             if (showHornPrompt) {
                 interactionPrompt.textContent = 'Click to toot the horn';
+                interactionPrompt.style.display = 'block';
+            } else if (showTrainConnectorPrompt && canAttachToTrain) {
+                interactionPrompt.textContent = 'Click to attach';
+                interactionPrompt.style.display = 'block';
+            } else if (showCouplerPrompt) {
+                if (gameState.cartAttached) {
+                    interactionPrompt.textContent = 'Click to detach';
+                } else if (gameState.cartGrabbed) {
+                    interactionPrompt.textContent = 'Click to release';
+                } else {
+                    interactionPrompt.textContent = 'Click to grab';
+                }
+                interactionPrompt.style.display = 'block';
+            } else if (showNpcPrompt) {
+                interactionPrompt.textContent = 'Click to talk';
                 interactionPrompt.style.display = 'block';
             } else if (leverIntersects.length > 0 || switchIntersects.length > 0) {
                 interactionPrompt.textContent = 'Click to Toggle';
@@ -3099,7 +3279,7 @@
 
                 // Update dialogue box
                 if (npcShowingDialogue && npcDialogueElement && npcGroup) {
-                    const typeSpeed = 0.05; // seconds per character
+                    const typeSpeed = 0.08; // seconds per character
                     npcDialogueProgress += delta;
 
                     // Typewriter effect
@@ -3127,6 +3307,16 @@
                     if (npcDialogueCharIndex >= npcDialogueText.length) {
                         if (npcDialogueCompleteTime === 0) {
                             npcDialogueCompleteTime = currentTime;
+
+                            // Complete greeting quest when dialogue finishes
+                            if (questActive && !greetQuestCompleted) {
+                                greetQuestCompleted = true;
+                                questTextElement.innerHTML = '<span style="color: #4ade80;">✓ Say hello to the train station manager</span>';
+                                setTimeout(() => {
+                                    questElement.style.display = 'none';
+                                    questActive = false;
+                                }, 3000);
+                            }
                         } else if (currentTime - npcDialogueCompleteTime > 2000) {
                             npcShowingDialogue = false;
                             npcDialogueElement.style.display = 'none';
