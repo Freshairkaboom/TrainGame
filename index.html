@@ -85,9 +85,9 @@
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
     <div id="npc-dialogue" style="display: none; position: absolute; background: rgba(0, 0, 0, 0.85); color: white; padding: 12px 18px; border-radius: 8px; font-size: 16px; max-width: 300px; text-align: center; pointer-events: none; z-index: 50; border: 2px solid #ffd700;"></div>
-    <div id="quest-display" style="display: none; position: absolute; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.9); color: white; padding: 15px 20px; border-radius: 8px; font-size: 14px; min-width: 250px; z-index: 50; border-left: 4px solid #ffd700;">
-        <div style="font-weight: bold; color: #ffd700; margin-bottom: 8px;">QUEST</div>
-        <div id="quest-text"></div>
+    <div id="quest-display" style="position: absolute; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.9); color: white; padding: 15px 20px; border-radius: 8px; font-size: 14px; min-width: 250px; z-index: 50; border-left: 4px solid #ffd700;">
+        <div style="font-weight: bold; color: #ffd700; margin-bottom: 8px;">QUESTS</div>
+        <div id="quest-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
     </div>
     <div id="version">v1.10</div>
 
@@ -182,13 +182,17 @@
         let npcDialogueCompleteTime = 0;
 
         // Quest system
-        let questActive = false;
-        let questCompleted = false;
         let questElement = null;
-        let questTextElement = null;
+        let questListElement = null;
         let hasEverBoardedTrain = false;
-        let greetQuestCompleted = false;
-        let cartQuestCompleted = false;
+        const activeQuests = new Map(); // questId -> {text, completed}
+        let bothQuestsEverCompleted = false;
+
+        // Cargo box system
+        const cargoBoxes = [];
+        let heldBox = null;
+        let cargoAreaInfo = null; // Will store cargo area position info
+        let destinationCargoAreaInfo = null; // Delivery destination cargo area
 
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
@@ -599,7 +603,7 @@
                 pattern: [
                     '1', '1',
                     {type: '4', targetRoute: 'branch'},  // Switcher that leads to branch route
-                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '1', '2', '1', '6'
+                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '1', '2', '6'
                 ],
                 startPos: new THREE.Vector3(0, 0, 0),
                 startDir: new THREE.Vector3(0, 0, -1)
@@ -1073,6 +1077,11 @@
             const endTransform = piece.getTransformAt(piece.length);
             const angle = Math.atan2(endTransform.direction.x, -endTransform.direction.z);
 
+            // Calculate left direction
+            const forward = endTransform.direction.clone().normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const leftDir = new THREE.Vector3().crossVectors(up, forward);
+
             // Red barrier bumper
             const barrierGeometry = new THREE.BoxGeometry(3.5, 1.0, 0.3);
             const barrierMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
@@ -1098,6 +1107,122 @@
             stripe2.position.y = 0.7;
             stripe2.rotation.y = -angle;
             scene.add(stripe2);
+
+            // Destination cargo area (to the left of the track)
+            const destCargoWidth = 4;
+            const destCargoLength = 5;
+            const destCargoHeight = 0.35;
+            const destCargoOffset = 4; // Distance from track center
+            const destCargoFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x505050 }); // Dark gray
+
+            // Cargo floor
+            const destCargoFloorGeometry = new THREE.BoxGeometry(destCargoWidth, destCargoHeight, destCargoLength);
+            const destCargoFloor = new THREE.Mesh(destCargoFloorGeometry, destCargoFloorMaterial);
+
+            // Position cargo area to the left of the end barrier
+            const destCargoPos = endTransform.position.clone();
+            destCargoPos.add(leftDir.clone().multiplyScalar(destCargoOffset));
+            destCargoPos.add(forward.clone().multiplyScalar(-2)); // Move back a bit from barrier
+            destCargoPos.y = destCargoHeight / 2;
+
+            destCargoFloor.position.copy(destCargoPos);
+            destCargoFloor.rotation.y = -angle;
+            destCargoFloor.castShadow = true;
+            destCargoFloor.receiveShadow = true;
+            scene.add(destCargoFloor);
+
+            // Striped edges (yellow and red alternating)
+            const stripeWidth = 0.15;
+            const stripeHeight = 0.05;
+            const stripeSpacing = 0.3;
+            const numStripesWidth = Math.floor(destCargoWidth / stripeSpacing);
+            const numStripesLength = Math.floor(destCargoLength / stripeSpacing);
+            const yellowMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const redMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+            // Front and back edges (along width)
+            for (let i = 0; i < numStripesWidth; i++) {
+                const offset = -destCargoWidth / 2 + stripeSpacing / 2 + i * stripeSpacing;
+                const stripeMaterial = i % 2 === 0 ? yellowMaterial : redMaterial;
+
+                // Front edge
+                const frontStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const frontStripePos = destCargoPos.clone();
+                frontStripePos.add(forward.clone().multiplyScalar(-destCargoLength / 2));
+                frontStripePos.add(leftDir.clone().multiplyScalar(-offset));
+                frontStripePos.y = destCargoHeight + stripeHeight / 2;
+                frontStripe.position.copy(frontStripePos);
+                frontStripe.rotation.y = -angle;
+                scene.add(frontStripe);
+
+                // Back edge
+                const backStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const backStripePos = destCargoPos.clone();
+                backStripePos.add(forward.clone().multiplyScalar(destCargoLength / 2));
+                backStripePos.add(leftDir.clone().multiplyScalar(-offset));
+                backStripePos.y = destCargoHeight + stripeHeight / 2;
+                backStripe.position.copy(backStripePos);
+                backStripe.rotation.y = -angle;
+                scene.add(backStripe);
+            }
+
+            // Left and right edges (along length)
+            for (let i = 0; i < numStripesLength; i++) {
+                const offset = -destCargoLength / 2 + stripeSpacing / 2 + i * stripeSpacing;
+                const stripeMaterial = i % 2 === 0 ? yellowMaterial : redMaterial;
+
+                // Left edge
+                const leftStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const leftStripePos = destCargoPos.clone();
+                leftStripePos.add(leftDir.clone().multiplyScalar(-destCargoWidth / 2));
+                leftStripePos.add(forward.clone().multiplyScalar(offset));
+                leftStripePos.y = destCargoHeight + stripeHeight / 2;
+                leftStripe.position.copy(leftStripePos);
+                leftStripe.rotation.y = -angle;
+                scene.add(leftStripe);
+
+                // Right edge
+                const rightStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const rightStripePos = destCargoPos.clone();
+                rightStripePos.add(leftDir.clone().multiplyScalar(destCargoWidth / 2));
+                rightStripePos.add(forward.clone().multiplyScalar(offset));
+                rightStripePos.y = destCargoHeight + stripeHeight / 2;
+                rightStripe.position.copy(rightStripePos);
+                rightStripe.rotation.y = -angle;
+                scene.add(rightStripe);
+            }
+
+            // Destination cargo area walkable collider
+            const destCargoCollider = new THREE.Mesh(destCargoFloorGeometry, new THREE.MeshBasicMaterial({ visible: false }));
+            destCargoCollider.position.copy(destCargoPos);
+            destCargoCollider.rotation.y = -angle;
+            destCargoCollider.userData.isWalkable = true;
+            destCargoCollider.userData.isDestinationCargo = true; // Mark as destination
+            scene.add(destCargoCollider);
+            environmentColliders.push(destCargoCollider);
+
+            // Store destination cargo area info
+            destinationCargoAreaInfo = {
+                position: destCargoPos.clone(),
+                width: destCargoWidth,
+                length: destCargoLength,
+                height: destCargoHeight,
+                angle: -angle,
+                leftDir: leftDir.clone(),
+                forwardDir: forward.clone()
+            };
         }
 
         function createStartBarrier(piece) {
@@ -1144,7 +1269,8 @@
 
             // Platform - positioned on the left side (where train door is)
             const platformWidth = 4;
-            const platformLength = piece.length * 0.8;
+            const cargoAreaLength = 5; // Length of cargo area
+            const platformLength = piece.length * 0.8 - cargoAreaLength; // Shortened to avoid overlap
             const platformHeight = 0.3;
             const platformOffset = 4; // Distance from track center
 
@@ -1154,6 +1280,8 @@
 
             const platformPos = midTransform.position.clone();
             platformPos.add(leftDir.clone().multiplyScalar(platformOffset));
+            // Shift platform forward to make room for cargo area at the back
+            platformPos.add(midTransform.direction.clone().multiplyScalar(cargoAreaLength / 2));
             platformPos.y = platformHeight / 2;
 
             platform.position.copy(platformPos);
@@ -1179,6 +1307,121 @@
             edge.position.y = platformHeight + 0.025;
             edge.rotation.y = -angle;
             scene.add(edge);
+
+            // Cargo area at start of platform
+            const cargoWidth = platformWidth; // Match platform width
+            const cargoHeight = 0.35;
+            const cargoFloorMaterial = new THREE.MeshStandardMaterial({ color: 0x505050 }); // Dark gray
+
+            // Cargo floor
+            const cargoFloorGeometry = new THREE.BoxGeometry(cargoWidth, cargoHeight, cargoAreaLength);
+            const cargoFloor = new THREE.Mesh(cargoFloorGeometry, cargoFloorMaterial);
+
+            // Position cargo area at start of platform (towards negative direction)
+            const cargoPos = midTransform.position.clone();
+            cargoPos.add(leftDir.clone().multiplyScalar(platformOffset));
+            // Position at the very back, before the main platform
+            cargoPos.add(midTransform.direction.clone().multiplyScalar(-(piece.length * 0.8 / 2 - cargoAreaLength / 2)));
+            cargoPos.y = cargoHeight / 2;
+
+            cargoFloor.position.copy(cargoPos);
+            cargoFloor.rotation.y = -angle;
+            cargoFloor.castShadow = true;
+            cargoFloor.receiveShadow = true;
+            scene.add(cargoFloor);
+
+            // Cargo area walkable collider
+            const cargoCollider = new THREE.Mesh(cargoFloorGeometry, new THREE.MeshBasicMaterial({ visible: false }));
+            cargoCollider.position.copy(cargoPos);
+            cargoCollider.rotation.y = -angle;
+            cargoCollider.userData.isWalkable = true;
+            scene.add(cargoCollider);
+            environmentColliders.push(cargoCollider);
+
+            // Striped edges (yellow and red alternating)
+            const stripeWidth = 0.15;
+            const stripeHeight = 0.05;
+            const stripeSpacing = 0.3; // Distance between stripes
+            const numStripesWidth = Math.floor(cargoWidth / stripeSpacing);
+            const numStripesLength = Math.floor(cargoAreaLength / stripeSpacing);
+            const yellowMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const redMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+            // Create stripes on all four edges
+            // Front and back edges (along width)
+            for (let i = 0; i < numStripesWidth; i++) {
+                const offset = -cargoWidth / 2 + stripeSpacing / 2 + i * stripeSpacing;
+                const stripeMaterial = i % 2 === 0 ? yellowMaterial : redMaterial;
+
+                // Front edge (facing negative direction)
+                const frontStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const frontStripePos = cargoPos.clone();
+                frontStripePos.add(midTransform.direction.clone().multiplyScalar(-cargoAreaLength / 2));
+                frontStripePos.add(leftDir.clone().multiplyScalar(-offset));
+                frontStripePos.y = cargoHeight + stripeHeight / 2;
+                frontStripe.position.copy(frontStripePos);
+                frontStripe.rotation.y = -angle;
+                scene.add(frontStripe);
+
+                // Back edge (facing positive direction)
+                const backStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const backStripePos = cargoPos.clone();
+                backStripePos.add(midTransform.direction.clone().multiplyScalar(cargoAreaLength / 2));
+                backStripePos.add(leftDir.clone().multiplyScalar(-offset));
+                backStripePos.y = cargoHeight + stripeHeight / 2;
+                backStripe.position.copy(backStripePos);
+                backStripe.rotation.y = -angle;
+                scene.add(backStripe);
+            }
+
+            // Left and right edges (along length)
+            for (let i = 0; i < numStripesLength; i++) {
+                const offset = -cargoAreaLength / 2 + stripeSpacing / 2 + i * stripeSpacing;
+                const stripeMaterial = i % 2 === 0 ? yellowMaterial : redMaterial;
+
+                // Left edge (towards track)
+                const leftStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const leftStripePos = cargoPos.clone();
+                leftStripePos.add(leftDir.clone().multiplyScalar(-cargoWidth / 2));
+                leftStripePos.add(midTransform.direction.clone().multiplyScalar(offset));
+                leftStripePos.y = cargoHeight + stripeHeight / 2;
+                leftStripe.position.copy(leftStripePos);
+                leftStripe.rotation.y = -angle;
+                scene.add(leftStripe);
+
+                // Right edge (away from track)
+                const rightStripe = new THREE.Mesh(
+                    new THREE.BoxGeometry(stripeWidth, stripeHeight, stripeWidth),
+                    stripeMaterial
+                );
+                const rightStripePos = cargoPos.clone();
+                rightStripePos.add(leftDir.clone().multiplyScalar(cargoWidth / 2));
+                rightStripePos.add(midTransform.direction.clone().multiplyScalar(offset));
+                rightStripePos.y = cargoHeight + stripeHeight / 2;
+                rightStripe.position.copy(rightStripePos);
+                rightStripe.rotation.y = -angle;
+                scene.add(rightStripe);
+            }
+
+            // Store cargo area info for box spawning
+            cargoAreaInfo = {
+                position: cargoPos.clone(),
+                width: cargoWidth,
+                length: cargoAreaLength,
+                height: cargoHeight,
+                angle: -angle,
+                leftDir: leftDir.clone(),
+                forwardDir: midTransform.direction.clone()
+            };
 
             // Station Building 1 - Main building (proper structure with walls, floor, roof)
             const building1Width = 6;
@@ -2250,12 +2493,382 @@
 
         // Get quest DOM elements
         questElement = document.getElementById('quest-display');
-        questTextElement = document.getElementById('quest-text');
+        questListElement = document.getElementById('quest-list');
 
-        // Show initial greeting quest
-        questActive = true;
-        questTextElement.textContent = 'Say hello to the train station manager';
-        questElement.style.display = 'block';
+        // Add initial greeting quest
+        addQuest('greet', 'Say hello to the train station manager');
+
+        // Quest helper functions
+        function addQuest(questId, text) {
+            if (!activeQuests.has(questId)) {
+                activeQuests.set(questId, { text, completed: false });
+                updateQuestDisplay();
+            }
+        }
+
+        function completeQuest(questId) {
+            if (activeQuests.has(questId)) {
+                activeQuests.get(questId).completed = true;
+                updateQuestDisplay();
+
+                // Add delivery quest when cargo quest completes
+                if (questId === 'cargo') {
+                    setTimeout(() => {
+                        addQuest('delivery', 'Drive the cargo to the end of the road');
+                    }, 3500); // Add after cargo quest is removed
+                }
+
+                // Remove completed quest after 3 seconds
+                setTimeout(() => {
+                    activeQuests.delete(questId);
+                    updateQuestDisplay();
+                }, 3000);
+            }
+        }
+
+        function updateQuestDisplay() {
+            questListElement.innerHTML = '';
+            if (activeQuests.size === 0) {
+                questElement.style.display = 'none';
+                return;
+            }
+            questElement.style.display = 'block';
+            activeQuests.forEach((quest) => {
+                const questItem = document.createElement('div');
+                if (quest.completed) {
+                    questItem.innerHTML = '<span style="color: #4ade80;">✓ ' + quest.text + '</span>';
+                } else {
+                    questItem.textContent = quest.text;
+                }
+                questListElement.appendChild(questItem);
+            });
+
+            // Check if both quests are completed (even if deleted from map)
+            const greetCompleted = !activeQuests.has('greet') || activeQuests.get('greet').completed;
+            const cartCompleted = !activeQuests.has('cart') || activeQuests.get('cart').completed;
+            if (greetCompleted && cartCompleted && !bothQuestsEverCompleted) {
+                bothQuestsEverCompleted = true;
+                setTimeout(() => {
+                    spawnCargoBoxes();
+                }, 3500); // Spawn after quests are removed
+            }
+        }
+
+        function spawnCargoBoxes() {
+            if (!cargoAreaInfo || cargoBoxes.length > 0) return;
+
+            const boxSize = 0.5;
+            const boxMaterial = new THREE.MeshStandardMaterial({ color: 0x8b6914 });
+
+            // Spawn 3 boxes in a row on the cargo area
+            for (let i = 0; i < 3; i++) {
+                const boxGeometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+                const box = new THREE.Mesh(boxGeometry, boxMaterial);
+
+                // Position boxes in a row
+                const boxPos = cargoAreaInfo.position.clone();
+                boxPos.add(cargoAreaInfo.forwardDir.clone().multiplyScalar((i - 1) * (boxSize + 0.2)));
+                boxPos.y = cargoAreaInfo.height + boxSize / 2;
+
+                box.position.copy(boxPos);
+                box.rotation.y = cargoAreaInfo.angle;
+                box.castShadow = true;
+                box.receiveShadow = true;
+
+                const boxData = {
+                    mesh: box,
+                    velocity: new THREE.Vector3(),
+                    size: boxSize,
+                    isPickable: true,
+                    onPlatform: null, // Track if box is on train/cart (null, 'train', or 'cart')
+                    lastCartPosition: null,
+                    lastCartRotation: null
+                };
+
+                scene.add(box);
+                cargoBoxes.push(boxData);
+            }
+
+            // Add cargo loading quest
+            addQuest('cargo', 'Load the cargo into the train cart');
+        }
+
+        function pickupBox(box) {
+            heldBox = box;
+            box.isPickable = false;
+        }
+
+        function dropBox() {
+            if (heldBox) {
+                heldBox.isPickable = true;
+                heldBox = null;
+            }
+        }
+
+        function updateBoxPhysics(delta) {
+            // Track train and cart movement
+            const trainMovement = new THREE.Vector3().subVectors(trainGroup.position, gameState.previousTrainPosition);
+            const trainRotationDelta = trainGroup.rotation.y - gameState.previousTrainRotation;
+
+            for (const boxData of cargoBoxes) {
+                if (boxData === heldBox) {
+                    // Position box in front of player when held
+                    const holdDistance = 1.2;
+                    const holdHeight = 0.0; // At eye level (relative to player position)
+
+                    // Get camera's forward direction in world space
+                    const forward = new THREE.Vector3(0, 0, -1);
+                    forward.applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+                    forward.y = 0; // Keep it horizontal
+                    forward.normalize();
+
+                    // Get player's world position (works whether on train or not)
+                    const playerWorldPos = player.getWorldPosition(new THREE.Vector3());
+                    const targetPos = playerWorldPos.clone();
+                    targetPos.add(forward.multiplyScalar(holdDistance));
+                    targetPos.y = playerWorldPos.y + holdHeight;
+
+                    boxData.mesh.position.copy(targetPos);
+                    boxData.velocity.set(0, 0, 0);
+                    boxData.onPlatform = null;
+                    continue;
+                }
+
+                // Move box with platform if it's on one
+                if (boxData.onPlatform === 'train') {
+                    // Move with train
+                    boxData.mesh.position.add(trainMovement);
+
+                    // Rotate around train center
+                    if (Math.abs(trainRotationDelta) > 0.0001) {
+                        const relativePos = new THREE.Vector3().subVectors(boxData.mesh.position, trainGroup.position);
+                        relativePos.applyAxisAngle(new THREE.Vector3(0, 1, 0), trainRotationDelta);
+                        boxData.mesh.position.copy(trainGroup.position.clone().add(relativePos));
+                        // Rotate the box mesh itself
+                        boxData.mesh.rotation.y += trainRotationDelta;
+                    }
+                } else if (boxData.onPlatform === 'cart') {
+                    // Move with cart (cart position is updated before box physics)
+                    const cartMovement = new THREE.Vector3().subVectors(cartGroup.position, boxData.lastCartPosition || cartGroup.position);
+                    boxData.mesh.position.add(cartMovement);
+
+                    // Rotate with cart
+                    const cartRotationDelta = cartGroup.rotation.y - (boxData.lastCartRotation || cartGroup.rotation.y);
+                    if (Math.abs(cartRotationDelta) > 0.0001) {
+                        const relativePos = new THREE.Vector3().subVectors(boxData.mesh.position, cartGroup.position);
+                        relativePos.applyAxisAngle(new THREE.Vector3(0, 1, 0), cartRotationDelta);
+                        boxData.mesh.position.copy(cartGroup.position.clone().add(relativePos));
+                        // Rotate the box mesh itself
+                        boxData.mesh.rotation.y += cartRotationDelta;
+                    }
+                }
+
+                // Store cart position and rotation for next frame
+                boxData.lastCartPosition = cartGroup.position.clone();
+                boxData.lastCartRotation = cartGroup.rotation.y;
+
+                // Reset platform tracking (will be set again during collision)
+                const wasOnPlatform = boxData.onPlatform;
+                boxData.onPlatform = null;
+
+                // Apply gravity to dropped boxes
+                boxData.velocity.y -= 25 * delta;
+
+                // Apply horizontal velocity (for tumbling/sliding)
+                boxData.mesh.position.x += boxData.velocity.x * delta;
+                boxData.mesh.position.z += boxData.velocity.z * delta;
+                boxData.mesh.position.y += boxData.velocity.y * delta;
+
+                // Apply friction to horizontal velocity
+                boxData.velocity.x *= 0.95;
+                boxData.velocity.z *= 0.95;
+
+                // Ground collision
+                if (boxData.mesh.position.y < boxData.size / 2) {
+                    boxData.mesh.position.y = boxData.size / 2;
+                    boxData.velocity.y = 0;
+                    // Ground friction
+                    boxData.velocity.x *= 0.8;
+                    boxData.velocity.z *= 0.8;
+                }
+
+                // Collision with other boxes
+                for (const otherBoxData of cargoBoxes) {
+                    if (otherBoxData === boxData || otherBoxData === heldBox) continue;
+
+                    const diff = new THREE.Vector3().subVectors(boxData.mesh.position, otherBoxData.mesh.position);
+                    const horizontalDiff = new THREE.Vector3(diff.x, 0, diff.z);
+                    const horizontalDistance = horizontalDiff.length();
+                    const verticalDiff = diff.y;
+
+                    // Check if boxes are overlapping horizontally and vertically
+                    const horizontalOverlap = boxData.size - horizontalDistance;
+                    const verticalOverlap = boxData.size - Math.abs(verticalDiff);
+
+                    if (horizontalOverlap > 0 && verticalOverlap > 0) {
+                        // Box is on top of another (vertically stacked)
+                        if (verticalDiff > boxData.size * 0.4 && verticalDiff < boxData.size * 1.5) {
+                            // Snap to exact stacking position
+                            boxData.mesh.position.y = otherBoxData.mesh.position.y + boxData.size;
+
+                            // Stop all velocity when stacked
+                            if (boxData.velocity.y < 0) {
+                                boxData.velocity.y = 0;
+                            }
+                            boxData.velocity.x = 0;
+                            boxData.velocity.z = 0;
+                        } else {
+                            // Side-by-side collision - push apart horizontally
+                            if (horizontalDistance > 0.01) {
+                                const pushDirection = horizontalDiff.normalize();
+                                const pushAmount = horizontalOverlap * 0.5;
+                                boxData.mesh.position.x += pushDirection.x * pushAmount;
+                                boxData.mesh.position.z += pushDirection.z * pushAmount;
+                                otherBoxData.mesh.position.x -= pushDirection.x * pushAmount;
+                                otherBoxData.mesh.position.z -= pushDirection.z * pushAmount;
+                            }
+                        }
+                    }
+                }
+
+                // Collision with cargo area
+                if (cargoAreaInfo) {
+                    const cargoBox = new THREE.Box3();
+                    cargoBox.setFromCenterAndSize(
+                        cargoAreaInfo.position,
+                        new THREE.Vector3(cargoAreaInfo.width, cargoAreaInfo.height, cargoAreaInfo.length)
+                    );
+                    const boxBounds = new THREE.Box3().setFromObject(boxData.mesh);
+                    if (cargoBox.intersectsBox(boxBounds)) {
+                        const topY = cargoAreaInfo.height + boxData.size / 2;
+                        if (boxData.mesh.position.y < topY) {
+                            boxData.mesh.position.y = topY;
+                            boxData.velocity.y = 0;
+                        }
+                    }
+                }
+
+                // Collision with destination cargo area
+                if (destinationCargoAreaInfo) {
+                    const destCargoBox = new THREE.Box3();
+                    destCargoBox.setFromCenterAndSize(
+                        destinationCargoAreaInfo.position,
+                        new THREE.Vector3(destinationCargoAreaInfo.width, destinationCargoAreaInfo.height, destinationCargoAreaInfo.length)
+                    );
+                    const boxBounds = new THREE.Box3().setFromObject(boxData.mesh);
+                    if (destCargoBox.intersectsBox(boxBounds)) {
+                        const topY = destinationCargoAreaInfo.height + boxData.size / 2;
+                        if (boxData.mesh.position.y <= topY + 0.1) { // Allow small tolerance
+                            if (boxData.mesh.position.y < topY) {
+                                boxData.mesh.position.y = topY;
+                            }
+                            boxData.velocity.y = 0;
+                            boxData.velocity.x = 0;
+                            boxData.velocity.z = 0;
+                            boxData.onPlatform = 'destination';
+                        }
+                    }
+                }
+
+                // Collision with train
+                let isOnTrain = false;
+                for (const trainCollider of trainColliders) {
+                    const trainLocalPos = trainGroup.worldToLocal(boxData.mesh.position.clone());
+                    const colliderPos = trainCollider.position.clone();
+                    const colliderGeometry = trainCollider.geometry;
+                    const halfSize = new THREE.Vector3(
+                        (colliderGeometry.parameters.width || 1) / 2,
+                        (colliderGeometry.parameters.height || 1) / 2,
+                        (colliderGeometry.parameters.depth || 1) / 2
+                    );
+
+                    const diff = new THREE.Vector3().subVectors(trainLocalPos, colliderPos);
+                    const overlapX = halfSize.x + boxData.size / 2 - Math.abs(diff.x);
+                    const overlapY = halfSize.y + boxData.size / 2 - Math.abs(diff.y);
+                    const overlapZ = halfSize.z + boxData.size / 2 - Math.abs(diff.z);
+
+                    if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                        if (overlapY < overlapX && overlapY < overlapZ) {
+                            if (diff.y > 0) {
+                                // Push box on top of train
+                                const correctedLocalPos = trainLocalPos.clone();
+                                correctedLocalPos.y += overlapY;
+                                const correctedWorldPos = trainGroup.localToWorld(correctedLocalPos);
+                                boxData.mesh.position.copy(correctedWorldPos);
+                                boxData.velocity.y = 0;
+                                boxData.velocity.x = 0;
+                                boxData.velocity.z = 0;
+                                isOnTrain = true;
+                            }
+                        }
+                    }
+                }
+                if (isOnTrain) boxData.onPlatform = 'train';
+
+                // Collision with train cart
+                if (cartGroup) {
+                    for (const cartCollider of cartColliders) {
+                        const cartWorldPos = cartCollider.getWorldPosition(new THREE.Vector3());
+                        const cartWorldQuat = cartCollider.getWorldQuaternion(new THREE.Quaternion());
+                        const cartGeometry = cartCollider.geometry;
+                        const halfSize = new THREE.Vector3(
+                            (cartGeometry.parameters.width || 1) / 2,
+                            (cartGeometry.parameters.height || 1) / 2,
+                            (cartGeometry.parameters.depth || 1) / 2
+                        );
+
+                        const diff = new THREE.Vector3().subVectors(boxData.mesh.position, cartWorldPos);
+                        const overlapX = halfSize.x + boxData.size / 2 - Math.abs(diff.x);
+                        const overlapY = halfSize.y + boxData.size / 2 - Math.abs(diff.y);
+                        const overlapZ = halfSize.z + boxData.size / 2 - Math.abs(diff.z);
+
+                        if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                            // Simple collision response - push box on top
+                            if (overlapY < overlapX && overlapY < overlapZ) {
+                                if (diff.y > 0) {
+                                    boxData.mesh.position.y += overlapY;
+                                    boxData.velocity.y = 0;
+                                    boxData.velocity.x = 0;
+                                    boxData.velocity.z = 0;
+                                    boxData.onPlatform = 'cart';
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Collision with environment (platform, etc.)
+                for (const collider of environmentColliders) {
+                    if (collider.userData.isWalkable) {
+                        const colliderWorldPos = collider.getWorldPosition(new THREE.Vector3());
+                        const colliderGeometry = collider.geometry;
+                        const halfSize = new THREE.Vector3(
+                            (colliderGeometry.parameters.width || 1) / 2,
+                            (colliderGeometry.parameters.height || 1) / 2,
+                            (colliderGeometry.parameters.depth || 1) / 2
+                        );
+
+                        const diff = new THREE.Vector3().subVectors(boxData.mesh.position, colliderWorldPos);
+                        const overlapX = halfSize.x + boxData.size / 2 - Math.abs(diff.x);
+                        const overlapY = halfSize.y + boxData.size / 2 - Math.abs(diff.y);
+                        const overlapZ = halfSize.z + boxData.size / 2 - Math.abs(diff.z);
+
+                        if (overlapX > 0 && overlapY > 0 && overlapZ > 0) {
+                            if (overlapY < overlapX && overlapY < overlapZ) {
+                                if (diff.y > 0) {
+                                    boxData.mesh.position.y += overlapY;
+                                    boxData.velocity.y = 0;
+                                    // Preserve destination platform state if on destination cargo
+                                    if (collider.userData.isDestinationCargo && boxData.onPlatform !== 'destination') {
+                                        boxData.onPlatform = 'destination';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // ===== INPUT HANDLING =====
         const instructionsEl = document.getElementById('instructions');
@@ -2406,14 +3019,27 @@
                                 console.log('Cart attached!');
 
                                 // Complete quest if active
-                                if (questActive && !cartQuestCompleted) {
-                                    cartQuestCompleted = true;
-                                    questTextElement.innerHTML = '<span style="color: #4ade80;">✓ Attach the train cart to the train</span>';
-                                    setTimeout(() => {
-                                        questElement.style.display = 'none';
-                                    }, 3000);
+                                if (activeQuests.has('cart') && !activeQuests.get('cart').completed) {
+                                    completeQuest('cart');
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Check for box pickup/drop
+                if (heldBox) {
+                    // Drop the box
+                    dropBox();
+                } else {
+                    // Try to pick up a box
+                    const boxMeshes = cargoBoxes.filter(b => b.isPickable).map(b => b.mesh);
+                    const boxIntersects = raycaster.intersectObjects(boxMeshes, false);
+                    if (boxIntersects.length > 0 && boxIntersects[0].distance < 3) {
+                        const clickedMesh = boxIntersects[0].object;
+                        const boxData = cargoBoxes.find(b => b.mesh === clickedMesh);
+                        if (boxData && boxData.isPickable) {
+                            pickupBox(boxData);
                         }
                     }
                 }
@@ -2637,6 +3263,43 @@
         }
 
         function updatePlayer(delta) {
+            // Update box physics
+            updateBoxPhysics(delta);
+
+            // Check cargo quest completion
+            if (activeQuests.has('cargo') && !activeQuests.get('cargo').completed) {
+                // Check if cart is attached
+                if (gameState.cartAttached && cargoBoxes.length > 0) {
+                    // Check if all boxes are on the cart
+                    const allBoxesOnCart = cargoBoxes.every(boxData => boxData.onPlatform === 'cart');
+                    if (allBoxesOnCart) {
+                        completeQuest('cargo');
+                    }
+                }
+            }
+
+            // Check delivery quest completion
+            if (activeQuests.has('delivery') && !activeQuests.get('delivery').completed) {
+                if (cargoBoxes.length > 0 && destinationCargoAreaInfo) {
+                    // Check if all boxes are on the destination cargo area
+                    const allBoxesOnDestination = cargoBoxes.every(boxData => boxData.onPlatform === 'destination');
+
+                    // Debug: Log box platform status
+                    console.log('Box platforms:', cargoBoxes.map(b => b.onPlatform));
+                    console.log('All on destination?', allBoxesOnDestination);
+
+                    if (allBoxesOnDestination) {
+                        completeQuest('delivery');
+                        // Remove all boxes from the scene
+                        cargoBoxes.forEach(boxData => {
+                            scene.remove(boxData.mesh);
+                        });
+                        cargoBoxes.length = 0; // Clear the array
+                        heldBox = null;
+                    }
+                }
+            }
+
             camera.rotation.y = -gameState.mouseMovement.x;
             camera.rotation.x = -gameState.mouseMovement.y;
 
@@ -2806,11 +3469,9 @@
                 player.position.copy(playerLocalPos);
 
                 // Trigger quest on first boarding
-                if (!hasEverBoardedTrain && greetQuestCompleted) {
+                if (!hasEverBoardedTrain) {
                     hasEverBoardedTrain = true;
-                    questActive = true;
-                    questTextElement.textContent = 'Attach the train cart to the train';
-                    questElement.style.display = 'block';
+                    addQuest('cart', 'Attach the train cart to the train');
                 }
 
                 // Reset player rotation to zero in the train's local space
@@ -3084,6 +3745,21 @@
                 }
             }
 
+            // Check for box interaction
+            let showBoxPrompt = false;
+            let boxAction = '';
+            if (heldBox) {
+                showBoxPrompt = true;
+                boxAction = 'drop';
+            } else if (cargoBoxes.length > 0) {
+                const boxMeshes = cargoBoxes.filter(b => b.isPickable).map(b => b.mesh);
+                const boxIntersects = raycaster.intersectObjects(boxMeshes, false);
+                if (boxIntersects.length > 0 && boxIntersects[0].distance < 3) {
+                    showBoxPrompt = true;
+                    boxAction = 'pickup';
+                }
+            }
+
             if (showHornPrompt) {
                 interactionPrompt.textContent = 'Click to toot the horn';
                 interactionPrompt.style.display = 'block';
@@ -3101,6 +3777,13 @@
                 interactionPrompt.style.display = 'block';
             } else if (showNpcPrompt) {
                 interactionPrompt.textContent = 'Click to talk';
+                interactionPrompt.style.display = 'block';
+            } else if (showBoxPrompt) {
+                if (boxAction === 'pickup') {
+                    interactionPrompt.textContent = 'Click to pick up';
+                } else {
+                    interactionPrompt.textContent = 'Click to drop';
+                }
                 interactionPrompt.style.display = 'block';
             } else if (leverIntersects.length > 0 || switchIntersects.length > 0) {
                 interactionPrompt.textContent = 'Click to Toggle';
@@ -3309,13 +3992,8 @@
                             npcDialogueCompleteTime = currentTime;
 
                             // Complete greeting quest when dialogue finishes
-                            if (questActive && !greetQuestCompleted) {
-                                greetQuestCompleted = true;
-                                questTextElement.innerHTML = '<span style="color: #4ade80;">✓ Say hello to the train station manager</span>';
-                                setTimeout(() => {
-                                    questElement.style.display = 'none';
-                                    questActive = false;
-                                }, 3000);
+                            if (activeQuests.has('greet') && !activeQuests.get('greet').completed) {
+                                completeQuest('greet');
                             }
                         } else if (currentTime - npcDialogueCompleteTime > 2000) {
                             npcShowingDialogue = false;
