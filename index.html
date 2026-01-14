@@ -84,6 +84,7 @@
         PAUSED
     </div>
     <div id="interaction-prompt">Click to Toggle</div>
+    <div id="npc-dialogue" style="display: none; position: absolute; background: rgba(0, 0, 0, 0.85); color: white; padding: 12px 18px; border-radius: 8px; font-size: 16px; max-width: 300px; text-align: center; pointer-events: none; z-index: 50; border: 2px solid #ffd700;"></div>
     <div id="version">v1.10</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -155,6 +156,25 @@
 
         // ===== NPC =====
         let npcGroup = null;
+        let npcHeadGroup = null;
+        let npcLeftPupil = null;
+        let npcRightPupil = null;
+        let npcWaveArm = null;
+        let npcWaveHand = null;
+        let npcInitialRotation = 0;
+        let npcStationBuilding1Pos = null;
+        let npcStationBuilding1Width = 0;
+        let npcStationBuilding1Depth = 0;
+        let npcStationAngle = 0;
+        let npcHasMetPlayer = false;
+        let npcWaveTime = 0;
+        let npcIsWaving = false;
+        let npcDialogueElement = null;
+        let npcDialogueText = "Welcome to the station! Hop aboard the train when you're ready.";
+        let npcDialogueProgress = 0;
+        let npcDialogueCharIndex = 0;
+        let npcShowingDialogue = false;
+        let npcDialogueCompleteTime = 0;
 
         // ===== TRAIN CONSTRUCTION =====
         const trainGroup = new THREE.Group();
@@ -1489,72 +1509,204 @@
 
             // Body
             const bodyGeometry = new THREE.BoxGeometry(0.4, 0.6, 0.25);
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue shirt
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue jacket
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             body.position.y = 0.6;
             body.castShadow = true;
             body.receiveShadow = true;
             npcGroup.add(body);
 
-            // Head (round)
-            const headGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            // White shirt (inner)
+            const shirtGeometry = new THREE.BoxGeometry(0.25, 0.6, 0.26);
+            const shirtMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White
+            const shirt = new THREE.Mesh(shirtGeometry, shirtMaterial);
+            shirt.position.y = 0.6;
+            shirt.castShadow = true;
+            shirt.receiveShadow = true;
+            npcGroup.add(shirt);
+
+            // Blue back panel (covers shirt and tie from behind)
+            const npcBackPanelGeometry = new THREE.BoxGeometry(0.25, 0.6, 0.02);
+            const npcBackPanel = new THREE.Mesh(npcBackPanelGeometry, bodyMaterial);
+            npcBackPanel.position.set(0, 0.6, -0.14);
+            npcBackPanel.castShadow = true;
+            npcBackPanel.receiveShadow = true;
+            npcGroup.add(npcBackPanel);
+
+            // Blue tie (at the neck)
+            const tieGeometry = new THREE.BoxGeometry(0.05, 0.25, 0.27);
+            const tieMaterial = new THREE.MeshStandardMaterial({ color: 0x1e3a8a }); // Dark blue
+            const tie = new THREE.Mesh(tieGeometry, tieMaterial);
+            tie.position.set(0, 0.8, 0);
+            tie.castShadow = true;
+            tie.receiveShadow = true;
+            npcGroup.add(tie);
+
+            // Gold buttons (6 buttons total - 3 on each side)
+            const buttonGeometry = new THREE.SphereGeometry(0.015, 8, 8);
+            const buttonMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 }); // Gold
+
+            // Left side buttons
+            const buttonLeft1 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonLeft1.position.set(-0.1, 0.75, 0.13);
+            npcGroup.add(buttonLeft1);
+
+            const buttonLeft2 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonLeft2.position.set(-0.1, 0.6, 0.13);
+            npcGroup.add(buttonLeft2);
+
+            const buttonLeft3 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonLeft3.position.set(-0.1, 0.45, 0.13);
+            npcGroup.add(buttonLeft3);
+
+            // Right side buttons
+            const buttonRight1 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonRight1.position.set(0.1, 0.75, 0.13);
+            npcGroup.add(buttonRight1);
+
+            const buttonRight2 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonRight2.position.set(0.1, 0.6, 0.13);
+            npcGroup.add(buttonRight2);
+
+            const buttonRight3 = new THREE.Mesh(buttonGeometry, buttonMaterial);
+            buttonRight3.position.set(0.1, 0.45, 0.13);
+            npcGroup.add(buttonRight3);
+
+            // Head group (can rotate independently from body)
+            npcHeadGroup = new THREE.Group();
+            npcHeadGroup.position.y = 1.05;
+            npcGroup.add(npcHeadGroup);
+
+            // Head (round and slightly bigger)
+            const headGeometry = new THREE.SphereGeometry(0.18, 16, 16);
             const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac }); // Skin tone
             const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.y = 1.05;
+            head.position.y = 0;
             head.castShadow = true;
             head.receiveShadow = true;
-            npcGroup.add(head);
+            npcHeadGroup.add(head);
 
-            // Eyes
-            const eyeGeometry = new THREE.SphereGeometry(0.025, 8, 8);
-            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 }); // Black eyes
+            // Eyes (white with black pupils)
+            const eyeWhiteGeometry = new THREE.SphereGeometry(0.03, 8, 8);
+            const eyeWhiteMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White
 
-            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-            leftEye.position.set(-0.05, 1.08, 0.13);
-            npcGroup.add(leftEye);
+            const leftEye = new THREE.Mesh(eyeWhiteGeometry, eyeWhiteMaterial);
+            leftEye.position.set(-0.06, 0.04, 0.155);
+            npcHeadGroup.add(leftEye);
 
-            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-            rightEye.position.set(0.05, 1.08, 0.13);
-            npcGroup.add(rightEye);
+            const rightEye = new THREE.Mesh(eyeWhiteGeometry, eyeWhiteMaterial);
+            rightEye.position.set(0.06, 0.04, 0.155);
+            npcHeadGroup.add(rightEye);
 
-            // Mouth (simple smile)
-            const mouthGeometry = new THREE.BoxGeometry(0.08, 0.015, 0.01);
-            const mouthMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 }); // Brown
-            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
-            mouth.position.set(0, 0.98, 0.14);
-            npcGroup.add(mouth);
+            // Pupils (larger)
+            const pupilGeometry = new THREE.SphereGeometry(0.018, 8, 8);
+            const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 }); // Black
 
-            // Hat
+            npcLeftPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+            npcLeftPupil.position.set(-0.06, 0.04, 0.18);
+            npcHeadGroup.add(npcLeftPupil);
+
+            npcRightPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+            npcRightPupil.position.set(0.06, 0.04, 0.18);
+            npcHeadGroup.add(npcRightPupil);
+
+            // Eyelids (top)
+            const eyelidGeometry = new THREE.SphereGeometry(0.032, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+            const eyelidMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac }); // Same as skin
+
+            const leftEyelid = new THREE.Mesh(eyelidGeometry, eyelidMaterial);
+            leftEyelid.position.set(-0.06, 0.055, 0.155);
+            leftEyelid.rotation.set(Math.PI, 0, 0);
+            leftEyelid.castShadow = true;
+            npcHeadGroup.add(leftEyelid);
+
+            const rightEyelid = new THREE.Mesh(eyelidGeometry, eyelidMaterial);
+            rightEyelid.position.set(0.06, 0.055, 0.155);
+            rightEyelid.rotation.set(Math.PI, 0, 0);
+            rightEyelid.castShadow = true;
+            npcHeadGroup.add(rightEyelid);
+
+            // Mouth (subtle asymmetric smile with tapered ends)
+            const mouthMaterial = new THREE.MeshStandardMaterial({ color: 0xaa5555 }); // Desaturated red/pink
+
+            // Create smile curve (asymmetric - right side lifts more)
+            const smileCurve = new THREE.QuadraticBezierCurve3(
+                new THREE.Vector3(-0.04, -0.092, 0.16),  // Left end
+                new THREE.Vector3(0, -0.095, 0.16),       // Middle (lower)
+                new THREE.Vector3(0.04, -0.088, 0.16)     // Right end (lifts more)
+            );
+
+            // Create tube geometry with varying radius (thicker in middle, thinner at ends)
+            const smilePoints = smileCurve.getPoints(20);
+            const smilePath = new THREE.CatmullRomCurve3(smilePoints);
+
+            // Create custom tube with varying radius
+            const radiusValues = [];
+            const segments = 20;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                // Thicker in middle (0.006), thinner at ends (0.003)
+                const radius = 0.003 + 0.003 * Math.sin(t * Math.PI);
+                radiusValues.push(radius);
+            }
+
+            // Use TubeGeometry with varying radius approximation
+            const smileGeometry = new THREE.TubeGeometry(smilePath, segments, 0.0045, 8, false);
+            const smile = new THREE.Mesh(smileGeometry, mouthMaterial);
+            npcHeadGroup.add(smile);
+
+            // Hat (top hat style)
+            const hatMaterial = new THREE.MeshStandardMaterial({ color: 0x3e2723 }); // Dark brown
+
+            // Brim (circular)
             const hatBrimGeometry = new THREE.CylinderGeometry(0.22, 0.22, 0.03, 16);
-            const hatMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 }); // Brown hat
             const hatBrim = new THREE.Mesh(hatBrimGeometry, hatMaterial);
-            hatBrim.position.y = 1.18;
+            hatBrim.position.y = 0.13;
             hatBrim.castShadow = true;
             hatBrim.receiveShadow = true;
-            npcGroup.add(hatBrim);
+            npcHeadGroup.add(hatBrim);
 
+            // Top (tall cylinder)
             const hatTopGeometry = new THREE.CylinderGeometry(0.13, 0.13, 0.15, 16);
             const hatTop = new THREE.Mesh(hatTopGeometry, hatMaterial);
-            hatTop.position.y = 1.27;
+            hatTop.position.y = 0.22;
             hatTop.castShadow = true;
             hatTop.receiveShadow = true;
-            npcGroup.add(hatTop);
+            npcHeadGroup.add(hatTop);
 
-            // Arms
-            const armGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.15);
-            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue shirt
+            // Arms (shortened to make room for hands)
+            const armGeometry = new THREE.BoxGeometry(0.15, 0.4, 0.15);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x4a90e2 }); // Blue jacket
 
             const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-            leftArm.position.set(-0.275, 0.55, 0);
+            leftArm.position.set(-0.275, 0.6, 0);
             leftArm.castShadow = true;
             leftArm.receiveShadow = true;
             npcGroup.add(leftArm);
+            npcWaveArm = leftArm;
 
             const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-            rightArm.position.set(0.275, 0.55, 0);
+            rightArm.position.set(0.275, 0.6, 0);
             rightArm.castShadow = true;
             rightArm.receiveShadow = true;
             npcGroup.add(rightArm);
+
+            // Hands (skin tone)
+            const handGeometry = new THREE.BoxGeometry(0.12, 0.15, 0.12);
+            const handMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac }); // Skin tone
+
+            const leftHand = new THREE.Mesh(handGeometry, handMaterial);
+            leftHand.position.set(-0.275, 0.325, 0);
+            leftHand.castShadow = true;
+            leftHand.receiveShadow = true;
+            npcGroup.add(leftHand);
+            npcWaveHand = leftHand;
+
+            const rightHand = new THREE.Mesh(handGeometry, handMaterial);
+            rightHand.position.set(0.275, 0.325, 0);
+            rightHand.castShadow = true;
+            rightHand.receiveShadow = true;
+            npcGroup.add(rightHand);
 
             // Legs
             const legGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.15);
@@ -1575,6 +1727,11 @@
             // Position and rotate the NPC group
             npcGroup.position.copy(npcPos);
             npcGroup.rotation.y = -angle;
+            npcInitialRotation = -angle;
+            npcStationBuilding1Pos = building1Pos.clone();
+            npcStationBuilding1Width = building1Width;
+            npcStationBuilding1Depth = building1Depth;
+            npcStationAngle = -angle;
             scene.add(npcGroup);
 
             // Station Building 2 - Smaller building
@@ -2070,6 +2227,7 @@
         // ===== INPUT HANDLING =====
         const instructionsEl = document.getElementById('instructions');
         const pauseOverlay = document.getElementById('pause-overlay');
+        npcDialogueElement = document.getElementById('npc-dialogue');
 
         document.addEventListener('keydown', (e) => {
             gameState.keys[e.code] = true;
@@ -2786,31 +2944,197 @@
                 updateTrain(delta);
                 updatePlayer(delta);
 
-                // Update NPC rotation to face player
-                if (npcGroup) {
-                    const npcWorldPos = new THREE.Vector3();
-                    npcGroup.getWorldPosition(npcWorldPos);
-
+                // Update NPC rotation to face player (head only, or body if needed)
+                if (npcGroup && npcHeadGroup && npcStationBuilding1Pos) {
                     const playerWorldPos = new THREE.Vector3();
                     player.getWorldPosition(playerWorldPos);
 
-                    // Calculate angle to player
-                    const dx = playerWorldPos.x - npcWorldPos.x;
-                    const dz = playerWorldPos.z - npcWorldPos.z;
-                    const targetAngle = Math.atan2(dx, dz);
+                    // Check if player is inside station building
+                    const buildingCos = Math.cos(npcStationAngle);
+                    const buildingSin = Math.sin(npcStationAngle);
+                    const dx = playerWorldPos.x - npcStationBuilding1Pos.x;
+                    const dz = playerWorldPos.z - npcStationBuilding1Pos.z;
+                    const localX = dx * buildingCos + dz * buildingSin;
+                    const localZ = -dx * buildingSin + dz * buildingCos;
 
-                    // Smoothly interpolate rotation
+                    const isInStation = Math.abs(localX) < npcStationBuilding1Width / 2 &&
+                                       Math.abs(localZ) < npcStationBuilding1Depth / 2 &&
+                                       playerWorldPos.y > 0.1 && playerWorldPos.y < 4.5;
+
                     const rotationSpeed = 2.0; // Radians per second
-                    let currentAngle = npcGroup.rotation.y;
-                    let angleDiff = targetAngle - currentAngle;
+                    const maxHeadRotation = Math.PI / 3; // 60 degrees
 
-                    // Normalize angle difference to [-PI, PI]
-                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+                    if (isInStation) {
+                        // First time player enters - start wave animation and dialogue
+                        if (!npcHasMetPlayer) {
+                            npcHasMetPlayer = true;
+                            npcIsWaving = true;
+                            npcWaveTime = 0;
+                            npcShowingDialogue = true;
+                            npcDialogueCharIndex = 0;
+                            npcDialogueProgress = 0;
+                        }
 
-                    // Apply smooth rotation
-                    const rotationStep = Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), rotationSpeed * delta);
-                    npcGroup.rotation.y += rotationStep;
+                        // Player is in station - look at player
+                        const npcWorldPos = new THREE.Vector3();
+                        npcGroup.getWorldPosition(npcWorldPos);
+
+                        // Update pupils to look at player
+                        if (npcLeftPupil && npcRightPupil) {
+                            const npcHeadWorldPos = new THREE.Vector3();
+                            npcHeadGroup.getWorldPosition(npcHeadWorldPos);
+
+                            // Calculate direction from head to player in head's local space
+                            const headToPlayer = playerWorldPos.clone().sub(npcHeadWorldPos);
+                            const headWorldQuaternion = new THREE.Quaternion();
+                            npcHeadGroup.getWorldQuaternion(headWorldQuaternion);
+                            headToPlayer.applyQuaternion(headWorldQuaternion.invert());
+                            headToPlayer.normalize();
+
+                            // Calculate pupil offset (constrain to eye bounds)
+                            const maxPupilOffset = 0.012;
+                            const pupilOffsetX = Math.max(-maxPupilOffset, Math.min(maxPupilOffset, headToPlayer.x * 0.018));
+                            const pupilOffsetY = Math.max(-maxPupilOffset, Math.min(maxPupilOffset, headToPlayer.y * 0.018));
+
+                            // Update pupil positions (adjusted for new eye positions)
+                            npcLeftPupil.position.set(-0.06 + pupilOffsetX, 0.04 + pupilOffsetY, 0.18);
+                            npcRightPupil.position.set(0.06 + pupilOffsetX, 0.04 + pupilOffsetY, 0.18);
+                        }
+
+                        const playerDx = playerWorldPos.x - npcWorldPos.x;
+                        const playerDz = playerWorldPos.z - npcWorldPos.z;
+                        const targetAbsoluteAngle = Math.atan2(playerDx, playerDz);
+
+                        // Calculate relative angle from body
+                        let relativeAngle = targetAbsoluteAngle - npcGroup.rotation.y;
+                        while (relativeAngle > Math.PI) relativeAngle -= 2 * Math.PI;
+                        while (relativeAngle < -Math.PI) relativeAngle += 2 * Math.PI;
+
+                        if (Math.abs(relativeAngle) > maxHeadRotation) {
+                            // Need to rotate body too
+                            let bodyAngleDiff = targetAbsoluteAngle - npcGroup.rotation.y;
+                            while (bodyAngleDiff > Math.PI) bodyAngleDiff -= 2 * Math.PI;
+                            while (bodyAngleDiff < -Math.PI) bodyAngleDiff += 2 * Math.PI;
+
+                            const bodyRotationStep = Math.sign(bodyAngleDiff) * Math.min(Math.abs(bodyAngleDiff), rotationSpeed * delta);
+                            npcGroup.rotation.y += bodyRotationStep;
+
+                            // Head rotation gradually returns to center as body turns
+                            let headAngleDiff = -npcHeadGroup.rotation.y;
+                            const headRotationStep = Math.sign(headAngleDiff) * Math.min(Math.abs(headAngleDiff), rotationSpeed * 2 * delta);
+                            npcHeadGroup.rotation.y += headRotationStep;
+                        } else {
+                            // Only rotate head
+                            let headAngleDiff = relativeAngle - npcHeadGroup.rotation.y;
+                            while (headAngleDiff > Math.PI) headAngleDiff -= 2 * Math.PI;
+                            while (headAngleDiff < -Math.PI) headAngleDiff += 2 * Math.PI;
+
+                            const headRotationStep = Math.sign(headAngleDiff) * Math.min(Math.abs(headAngleDiff), rotationSpeed * 2 * delta);
+                            npcHeadGroup.rotation.y += headRotationStep;
+                        }
+                    } else {
+                        // Player left station - return to initial position
+                        let bodyAngleDiff = npcInitialRotation - npcGroup.rotation.y;
+                        while (bodyAngleDiff > Math.PI) bodyAngleDiff -= 2 * Math.PI;
+                        while (bodyAngleDiff < -Math.PI) bodyAngleDiff += 2 * Math.PI;
+
+                        const bodyRotationStep = Math.sign(bodyAngleDiff) * Math.min(Math.abs(bodyAngleDiff), rotationSpeed * delta);
+                        npcGroup.rotation.y += bodyRotationStep;
+
+                        // Head returns to center
+                        let headAngleDiff = -npcHeadGroup.rotation.y;
+                        const headRotationStep = Math.sign(headAngleDiff) * Math.min(Math.abs(headAngleDiff), rotationSpeed * 2 * delta);
+                        npcHeadGroup.rotation.y += headRotationStep;
+                    }
+                }
+
+                // Update wave animation
+                if (npcIsWaving && npcWaveArm && npcWaveHand) {
+                    npcWaveTime += delta;
+                    const waveDuration = 2.5; // Total wave duration in seconds
+
+                    if (npcWaveTime < waveDuration) {
+                        const progress = npcWaveTime / waveDuration;
+
+                        // Raise arm gradually, then wave, then lower
+                        let armRotation = 0;
+                        let handRotation = 0;
+
+                        if (progress < 0.2) {
+                            // Raise arm (0-0.2) - rotate on Z axis to raise to the side
+                            const raiseProgress = progress / 0.2;
+                            armRotation = -Math.PI * 0.75 * raiseProgress; // Raise arm higher (135 degrees)
+                        } else if (progress < 0.8) {
+                            // Wave (0.2-0.8) - rotate hand side to side
+                            armRotation = -Math.PI * 0.75;
+                            const waveProgress = (progress - 0.2) / 0.6;
+                            handRotation = Math.sin(waveProgress * Math.PI * 4) * 0.5; // 4 waves
+                        } else {
+                            // Lower arm (0.8-1.0)
+                            const lowerProgress = (progress - 0.8) / 0.2;
+                            armRotation = -Math.PI * 0.75 * (1 - lowerProgress);
+                        }
+
+                        npcWaveArm.rotation.z = armRotation; // Use Z axis for raising arm to side
+                        npcWaveHand.rotation.x = handRotation; // Use X axis for waving motion
+
+                        // Calculate hand position at end of rotated arm
+                        const armLength = 0.2; // Half the arm height (0.4 / 2)
+                        const armBaseX = -0.275;
+                        const armBaseY = 0.6;
+
+                        // When arm rotates on Z axis, calculate the end position
+                        const handX = armBaseX + Math.sin(armRotation) * armLength;
+                        const handY = armBaseY - Math.cos(armRotation) * armLength;
+
+                        npcWaveHand.position.set(handX, handY, 0);
+                    } else {
+                        // Wave complete - return to rest position
+                        npcIsWaving = false;
+                        npcWaveArm.rotation.z = 0;
+                        npcWaveHand.rotation.x = 0;
+                        npcWaveHand.position.set(-0.275, 0.325, 0);
+                    }
+                }
+
+                // Update dialogue box
+                if (npcShowingDialogue && npcDialogueElement && npcGroup) {
+                    const typeSpeed = 0.05; // seconds per character
+                    npcDialogueProgress += delta;
+
+                    // Typewriter effect
+                    const targetCharIndex = Math.floor(npcDialogueProgress / typeSpeed);
+                    if (targetCharIndex > npcDialogueCharIndex && npcDialogueCharIndex < npcDialogueText.length) {
+                        npcDialogueCharIndex = Math.min(targetCharIndex, npcDialogueText.length);
+                        npcDialogueElement.textContent = npcDialogueText.substring(0, npcDialogueCharIndex);
+                        npcDialogueElement.style.display = 'block';
+                    }
+
+                    // Position dialogue box above NPC
+                    const npcWorldPos = new THREE.Vector3();
+                    npcGroup.getWorldPosition(npcWorldPos);
+                    npcWorldPos.y += 1.3; // Position above head
+
+                    const screenPos = npcWorldPos.project(camera);
+                    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-(screenPos.y) * 0.5 + 0.5) * window.innerHeight;
+
+                    npcDialogueElement.style.left = x + 'px';
+                    npcDialogueElement.style.top = y + 'px';
+                    npcDialogueElement.style.transform = 'translate(-50%, -100%)';
+
+                    // Hide dialogue after complete + 2 seconds
+                    if (npcDialogueCharIndex >= npcDialogueText.length) {
+                        if (npcDialogueCompleteTime === 0) {
+                            npcDialogueCompleteTime = currentTime;
+                        } else if (currentTime - npcDialogueCompleteTime > 2000) {
+                            npcShowingDialogue = false;
+                            npcDialogueElement.style.display = 'none';
+                            npcDialogueCompleteTime = 0;
+                        }
+                    }
+                } else if (npcDialogueElement && !npcShowingDialogue) {
+                    npcDialogueElement.style.display = 'none';
                 }
             }
 
