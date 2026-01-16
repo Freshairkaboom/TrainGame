@@ -490,6 +490,11 @@
                     const alpha = t / this.length;
                     position.lerpVectors(this.startPos, this.endPos, alpha);
                     direction.copy(this.startDir);
+
+                    // Handle height interpolation for bridges/ramps
+                    if (this.startHeight !== undefined && this.endHeight !== undefined) {
+                        position.y = this.startHeight + (this.endHeight - this.startHeight) * alpha;
+                    }
                 } else if (this.type === 'curve') {
                     const alpha = t / this.length;
                     const angle = this.startAngle + (this.endAngle - this.startAngle) * alpha;
@@ -511,13 +516,17 @@
             }
         }
 
-        function createStraightPiece(length, startPos, startDir) {
+        function createStraightPiece(length, startPos, startDir, startHeight = 0, endHeight = 0) {
             const piece = new TrackPiece();
             piece.type = 'straight';
             piece.startPos.copy(startPos);
+            piece.startPos.y = startHeight;
             piece.startDir.copy(startDir).normalize();
             piece.length = length;
+            piece.startHeight = startHeight;
+            piece.endHeight = endHeight;
             piece.endPos.copy(startPos).add(piece.startDir.clone().multiplyScalar(length));
+            piece.endPos.y = endHeight;
             piece.endDir.copy(piece.startDir);
             return piece;
         }
@@ -597,17 +606,46 @@
         }
 
         // ===== TRACK CONFIGURATION =====
+        function checkTrackIntersection(start1, end1, trackPiece) {
+            // Sample points along the existing track piece
+            const samples = 10;
+            for (let i = 0; i < samples; i++) {
+                const t = i / (samples - 1);
+                const transform = trackPiece.getTransformAt(t * trackPiece.length);
+                const nextT = Math.min((i + 1) / (samples - 1), 1);
+                const nextTransform = trackPiece.getTransformAt(nextT * trackPiece.length);
+
+                if (lineSegmentsIntersect2D(
+                    start1.x, start1.z,
+                    end1.x, end1.z,
+                    transform.position.x, transform.position.z,
+                    nextTransform.position.x, nextTransform.position.z
+                )) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 2D line segment intersection check
+        function lineSegmentsIntersect2D(x1, y1, x2, y2, x3, y3, x4, y4) {
+            const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (Math.abs(denominator) < 0.0001) return false; // Parallel
+
+            const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denominator;
+            const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denominator;
+
+            return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+        }
+
+        // ===== TRACK CONFIGURATION =====
         // Track Definition: 1=straight, 2=right_curve, 3=left_curve, 6=final piece
         // Switcher format: {type:4/5, targetRoute:'routeName'}
         // Final piece format: '6' - stops forward movement with red barrier (allows reverse)
         // Edit this configuration to create your track layout
         const TRACK_ROUTES = {
             main: {
-                pattern: [
-                    '1', '1',
-                    {type: '4', targetRoute: 'branch'},  // Switcher that leads to branch route
-                    '1', '1', '2', '1', '2', '1', '1', '1', '1', '1', '2', '6'
-                ],
+                pattern: ['1', '1', '7', '2', '1', '6'],
                 startPos: new THREE.Vector3(0, 0, 0),
                 startDir: new THREE.Vector3(0, 0, -1)
             },
@@ -630,6 +668,7 @@
 
         // Object to hold all track routes
         const trackRoutes = {};
+        const allBuiltPieces = []; // Global array to store all pieces from all routes for intersection checking
         let currentTrackRoute = 'main';
 
         // Track parent relationships for bidirectional switching
@@ -640,6 +679,7 @@
             const trackPieces = [];
             let currentPos = startPos.clone();
             let currentDir = startDir.clone();
+            let currentHeight = 0;
 
             // Auto-add station piece at the start if not already present (only for main route)
             const hasStation = pattern.some(seg => (typeof seg === 'object' ? seg.type : seg) === '0');
@@ -652,34 +692,147 @@
                 let segmentType = typeof segment === 'object' ? segment.type : segment;
                 let targetRoute = typeof segment === 'object' ? segment.targetRoute : null;
 
+                // Check for intersection with existing tracks (only for straight pieces)
+                let needsBridge = false;
+                let bridgeHeight = 0;
+                if (segmentType === '1') {
+                    const testEndPos = currentPos.clone().add(currentDir.clone().multiplyScalar(params.straightLength));
+
+                    // Check intersection with all previously built track pieces from ALL routes
+                    for (let i = 0; i < allBuiltPieces.length; i++) {
+                        const existingPiece = allBuiltPieces[i];
+                        // Skip if the existing piece is already a bridge
+                        if (existingPiece.isBridge) continue;
+
+                        if (checkTrackIntersection(currentPos, testEndPos, existingPiece)) {
+                            needsBridge = true;
+                            bridgeHeight = 4; // Height to clear train (train is ~2.5 units tall)
+                            break;
+                        }
+                    }
+
+                    // Also check against pieces in current route (but skip very recent ones)
+                    if (!needsBridge && trackPieces.length > 5) {
+                        for (let i = 0; i < trackPieces.length - 3; i++) {
+                            const existingPiece = trackPieces[i];
+                            if (existingPiece.isBridge) continue;
+
+                            if (checkTrackIntersection(currentPos, testEndPos, existingPiece)) {
+                                needsBridge = true;
+                                bridgeHeight = 4;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 switch(segmentType) {
                     case '0': // Station
                         piece = createStationPiece(params.straightLength, currentPos, currentDir);
+                        currentHeight = 0;
                         break;
                     case '1': // Straight
-                        piece = createStraightPiece(params.straightLength, currentPos, currentDir);
+                        if (needsBridge) {
+                            // Create bridge: ramp up, bridge, ramp down
+                            const rampLength = params.straightLength / 3;
+                            const bridgeLength = params.straightLength / 3;
+
+                            // Ramp up
+                            const rampUp = createStraightPiece(rampLength, currentPos, currentDir, currentHeight, bridgeHeight);
+                            rampUp.isBridge = true;
+                            trackPieces.push(rampUp);
+
+                            // Bridge section
+                            const bridgeStart = rampUp.endPos.clone();
+                            const bridgeSection = createStraightPiece(bridgeLength, bridgeStart, currentDir, bridgeHeight, bridgeHeight);
+                            bridgeSection.isBridge = true;
+                            trackPieces.push(bridgeSection);
+
+                            // Add support poles at the start of bridge section (where ramp meets bridge)
+                            const angle1 = Math.atan2(currentDir.x, -currentDir.z);
+                            const poleRadius = 0.2;
+                            const poleHeight = bridgeHeight;
+                            const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
+
+                            // Calculate left and right offsets
+                            const trackWidth = 2.0;
+                            const leftOffset1 = new THREE.Vector3(-trackWidth / 2 * Math.cos(angle1), 0, -trackWidth / 2 * Math.sin(angle1));
+                            const rightOffset1 = new THREE.Vector3(trackWidth / 2 * Math.cos(angle1), 0, trackWidth / 2 * Math.sin(angle1));
+
+                            // Left pole at bridge start
+                            const leftPole1 = new THREE.Mesh(new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8), poleMaterial);
+                            leftPole1.position.copy(bridgeStart).add(leftOffset1);
+                            leftPole1.position.y = poleHeight / 2;
+                            leftPole1.castShadow = true;
+                            leftPole1.receiveShadow = true;
+                            scene.add(leftPole1);
+
+                            // Right pole at bridge start
+                            const rightPole1 = new THREE.Mesh(new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8), poleMaterial);
+                            rightPole1.position.copy(bridgeStart).add(rightOffset1);
+                            rightPole1.position.y = poleHeight / 2;
+                            rightPole1.castShadow = true;
+                            rightPole1.receiveShadow = true;
+                            scene.add(rightPole1);
+
+                            // Ramp down
+                            const rampDownStart = bridgeSection.endPos.clone();
+                            const rampDown = createStraightPiece(rampLength, rampDownStart, currentDir, bridgeHeight, 0);
+                            rampDown.isBridge = true;
+                            trackPieces.push(rampDown);
+
+                            // Add support poles at the end of bridge section (where bridge meets ramp down)
+                            const leftOffset2 = new THREE.Vector3(-trackWidth / 2 * Math.cos(angle1), 0, -trackWidth / 2 * Math.sin(angle1));
+                            const rightOffset2 = new THREE.Vector3(trackWidth / 2 * Math.cos(angle1), 0, trackWidth / 2 * Math.sin(angle1));
+
+                            // Left pole at bridge end
+                            const leftPole2 = new THREE.Mesh(new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8), poleMaterial);
+                            leftPole2.position.copy(rampDownStart).add(leftOffset2);
+                            leftPole2.position.y = poleHeight / 2;
+                            leftPole2.castShadow = true;
+                            leftPole2.receiveShadow = true;
+                            scene.add(leftPole2);
+
+                            // Right pole at bridge end
+                            const rightPole2 = new THREE.Mesh(new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8), poleMaterial);
+                            rightPole2.position.copy(rampDownStart).add(rightOffset2);
+                            rightPole2.position.y = poleHeight / 2;
+                            rightPole2.castShadow = true;
+                            rightPole2.receiveShadow = true;
+                            scene.add(rightPole2);
+
+                            piece = rampDown; // Continue from ramp down end
+                            currentHeight = 0;
+                        } else {
+                            piece = createStraightPiece(params.straightLength, currentPos, currentDir, currentHeight, currentHeight);
+                        }
                         break;
                     case '2': // Right curve
                         piece = createCurvePiece(params.curveRadius, params.curveAngle, currentPos, currentDir);
+                        currentHeight = 0;
                         break;
                     case '3': // Left curve
                         piece = createCurvePiece(params.curveRadius, -params.curveAngle, currentPos, currentDir);
+                        currentHeight = 0;
                         break;
                     case '4': // Switcher with right turn option
                         piece = createSwitcherPiece(params.straightLength, params.curveRadius, params.curveAngle, currentPos, currentDir, targetRoute);
+                        currentHeight = 0;
                         break;
                     case '5': // Switcher with left turn option
                         piece = createSwitcherPiece(params.straightLength, params.curveRadius, -params.curveAngle, currentPos, currentDir, targetRoute);
+                        currentHeight = 0;
                         break;
                     case '6': // Final piece (transition piece)
                         piece = createFinalPiece(params.straightLength, currentPos, currentDir, targetRoute);
+                        currentHeight = 0;
                         break;
                     default:
                         console.warn(`Unknown track segment: ${segmentType}`);
                         return;
                 }
 
-                if (piece) {
+                if (piece && !needsBridge) {
                     trackPieces.push(piece);
                     currentPos.copy(piece.endPos);
                     currentDir.copy(piece.endDir);
@@ -694,8 +847,15 @@
                             switcherPiece: piece
                         };
                     }
+                } else if (needsBridge) {
+                    // Bridge pieces already added, just update position
+                    currentPos.copy(piece.endPos);
+                    currentDir.copy(piece.endDir);
                 }
             });
+
+            // Add all pieces from this route to the global array for future intersection checks
+            trackPieces.forEach(piece => allBuiltPieces.push(piece));
 
             return trackPieces;
         }
@@ -2123,7 +2283,7 @@
                 const leftRail = new THREE.Mesh(leftRailGeometry, railMaterial);
                 const leftOffset = new THREE.Vector3(-trackWidth / 2 * Math.cos(angle), 0, -trackWidth / 2 * Math.sin(angle));
                 leftRail.position.copy(midpoint).add(leftOffset);
-                leftRail.position.y = 0.075;
+                leftRail.position.y = midpoint.y + 0.075; // Use actual height from transform
                 leftRail.rotation.y = -angle;
                 leftRail.receiveShadow = true;
                 scene.add(leftRail);
@@ -2132,14 +2292,14 @@
                 const rightRail = new THREE.Mesh(rightRailGeometry, railMaterial);
                 const rightOffset = new THREE.Vector3(trackWidth / 2 * Math.cos(angle), 0, trackWidth / 2 * Math.sin(angle));
                 rightRail.position.copy(midpoint).add(rightOffset);
-                rightRail.position.y = 0.075;
+                rightRail.position.y = midpoint.y + 0.075; // Use actual height from transform
                 rightRail.rotation.y = -angle;
                 rightRail.receiveShadow = true;
                 scene.add(rightRail);
 
                 const crosstie = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.2), trackMaterial);
                 crosstie.position.copy(transform1.position);
-                crosstie.position.y = 0.05;
+                crosstie.position.y = transform1.position.y + 0.05; // Use actual height from transform
                 crosstie.rotation.y = -angle;
                 crosstie.receiveShadow = true;
                 scene.add(crosstie);
@@ -2149,7 +2309,7 @@
             const finalAngle = Math.atan2(finalTransform.direction.x, -finalTransform.direction.z);
             const finalCrosstie = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.2), trackMaterial);
             finalCrosstie.position.copy(finalTransform.position);
-            finalCrosstie.position.y = 0.05;
+            finalCrosstie.position.y = finalTransform.position.y + 0.05; // Use actual height from transform
             finalCrosstie.rotation.y = finalAngle;
             finalCrosstie.receiveShadow = true;
             scene.add(finalCrosstie);
@@ -2280,13 +2440,16 @@
                 if (remainingDistance <= effectiveLength) {
                     const transform = piece.getTransformAt(remainingDistance);
                     const rotation = Math.atan2(transform.direction.x, -transform.direction.z);
+                    // Calculate distance from route start to the beginning of this piece
+                    const pieceStartDistance = distance - remainingDistance;
                     // Return current piece type and distance within piece for deceleration logic
                     return {
                         position: transform.position,
                         rotation,
                         routeName,
                         currentPiece: piece,
-                        distanceInPiece: remainingDistance
+                        distanceInPiece: remainingDistance,
+                        pieceStartDistance: pieceStartDistance
                     };
                 }
 
@@ -3897,15 +4060,19 @@
         }
 
         let lastTime = performance.now();
+        let currentTime = lastTime;
 
         function animate() {
             requestAnimationFrame(animate);
 
-            const currentTime = performance.now();
-            const delta = (currentTime - lastTime) / 1000;
+            if (gameState.isPaused) {
+                return;
+            }
+
+            currentTime = Date.now();
+            const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
             lastTime = currentTime;
 
-            // Only update game state if not paused
             if (!gameState.isPaused) {
                 updateTrain(delta);
                 updatePlayer(delta);
